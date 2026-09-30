@@ -1,0 +1,70 @@
+# ==============================================================================
+# SE347 - TripPlanner / Wanderflow Monorepo .gitignore
+# Enterprise-grade Git ignore rule for Node.js, NestJS, Vue 3, Docker & IDEs
+# ==============================================================================
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+
+# Logs
+logs/
+*.log
+
+# Testing & Coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# IDE & Editor specific
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporary & Cache
+.cache/
+.temp/
+.tmp/
+tmp/
+*.tsbuildinfo
+
+# Prisma
+backend/prisma/migrations/*/migration_lock.toml
+
+# Docker volumes & local data
+postgres_data/
