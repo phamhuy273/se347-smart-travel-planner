@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
-import { PrismaModule } from './prisma/prisma.module.js';
-import { UploadModule } from './common/upload/upload.module.js';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { PrismaModule } from './prisma/prisma.module';
+import { UploadModule } from './common/upload/upload.module';
 
 @Module({
   imports: [
