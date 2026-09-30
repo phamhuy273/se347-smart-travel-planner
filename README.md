@@ -6,7 +6,7 @@
 
 ---
 
-## 🏗️ 1. Kiến Trúc Công Nghệ (Tech Stack)
+##  1. Kiến Trúc Công Nghệ (Tech Stack)
 
 * **Backend:** [NestJS](https://nestjs.com/) (TypeScript), RESTful API, Global Exception Filters, Transform Interceptors.
 * **Database & ORM:** [PostgreSQL 16](https://www.postgresql.org/) (Docker), [Prisma ORM](https://www.prisma.io/) (11 bảng CSDL chuẩn 3NF).
@@ -88,18 +88,18 @@ npm run dev
 
 ---
 
-## 🛡️ 4. Quy Chuẩn Làm Việc Git & GitHub (Tránh Conflict & Chuẩn Doanh Nghiệp)
+##  4. Quy Chuẩn Làm Việc Git & GitHub (Tránh Conflict)
 
 Để tránh tình trạng đè code, conflict và làm hỏng nhánh chung, toàn bộ thành viên **bắt buộc tuân thủ 100%** quy trình dưới đây:
 
-### ⚠️ 4.1. Ba Điều "Cấm Kỵ" (Tuyệt Đối Không Làm)
-1. ❌ **KHÔNG** bao giờ được `git push` trực tiếp lên nhánh `main` hoặc `develop`. Mọi code mới phải đi qua Pull Request.
-2. ❌ **KHÔNG** commit các file cấu hình môi trường cá nhân (`.env`), file rác hệ điều hành, hay thư mục thư viện (`node_modules/`, `dist/`).
-3. ❌ **KHÔNG** tự ý sửa code của module khác nếu chưa trao đổi trước với người phụ trách module đó.
+###  4.1. Ba Điều Cấm
+1.  **KHÔNG** bao giờ được `git push` trực tiếp lên nhánh `main` hoặc `develop`. Mọi code mới phải đi qua Pull Request.
+2.  **KHÔNG** commit các file cấu hình môi trường cá nhân (`.env`), file rác hệ điều hành, hay thư mục thư viện (`node_modules/`, `dist/`).
+3.  **KHÔNG** tự ý sửa code của module khác nếu chưa trao đổi trước với người phụ trách module đó.
 
 ---
 
-### 🌿 4.2. Quy Tắc Đặt Tên Nhánh (Branch Naming)
+###  4.2. Quy Tắc Đặt Tên Nhánh (Branch Naming)
 Mọi nhánh tính năng phải được tách ra từ nhánh **`develop`** mới nhất:
 - Tính năng Backend: `feat/be-<tên-chức-năng>` (VD: `feat/be-auth-jwt`, `feat/be-trips-crud`)
 - Tính năng Frontend: `feat/fe-<tên-chức-năng>` (VD: `feat/fe-login-page`, `feat/fe-my-trips`)
@@ -108,7 +108,7 @@ Mọi nhánh tính năng phải được tách ra từ nhánh **`develop`** mớ
 
 ---
 
-### 📝 4.3. Quy Tắc Viết Commit Message (Conventional Commits)
+###  4.3. Quy Tắc Viết Commit Message (Conventional Commits)
 Thông điệp commit phải rõ ràng, giải thích mình đã làm gì:
 - `feat(scope): ...` — Thêm tính năng mới (VD: `feat(auth): thêm api đăng nhập bằng jwt`)
 - `fix(scope): ...` — Sửa lỗi (VD: `fix(planner): sửa lỗi kéo thả địa điểm không lưu order`)
@@ -118,7 +118,7 @@ Thông điệp commit phải rõ ràng, giải thích mình đã làm gì:
 
 ---
 
-### 🔄 4.4. Quy Trình 6 Bước Làm Việc Chuẩn (Daily Workflow)
+###  4.4. Quy Trình 6 Bước Làm Việc  (Daily Workflow)
 
 Mỗi khi bắt đầu làm một tính năng mới hoặc bắt đầu một buổi code, hãy thực hiện theo đúng thứ tự:
 
@@ -173,7 +173,7 @@ git branch -d feat/fe-my-trips
 
 ---
 
-### ⚔️ 4.5. Hướng Dẫn Xử Lý Khi Gặp Conflict (Xung Đột Code)
+###  4.5. Hướng Dẫn Xử Lý Khi Gặp Conflict (Xung Đột Code)
 
 Khi chạy `git merge develop` mà màn hình hiện chữ đỏ `CONFLICT (content): Merge conflict in ...`:
 
@@ -185,7 +185,7 @@ Khi chạy `git merge develop` mà màn hình hiện chữ đỏ `CONFLICT (cont
    - `Accept Current Change`: Giữ code của bạn.
    - `Accept Incoming Change`: Lấy code mới của bạn khác.
    - `Accept Both Changes`: Giữ cả hai đoạn code.
-4. **Nguyên tắc vàng:** Nếu xung đột với code người khác, hãy nhắn tin thoại/hỏi trực tiếp người đó để thống nhất chọn đoạn code nào, **tuyệt đối không tự ý xóa code của đồng đội**.
+4. **Nguyên tắc vàng:** Nếu xung đột với code người khác, hãy nhắn tin thoại/hỏi trực tiếp người đó để thống nhất chọn đoạn code nào, **tuyệt đối không tự ý xóa code của team**.
 5. Sau khi chỉnh sửa xong nội dung chuẩn:
    - Chạy thử kiểm tra lại: `npm run build` (hoặc `npm test`) xem còn lỗi cú pháp không.
    - Lưu file lại, gõ lệnh hoàn tất merge:
@@ -197,7 +197,7 @@ Khi chạy `git merge develop` mà màn hình hiện chữ đỏ `CONFLICT (cont
 
 ---
 
-### 📦 4.6. Phân Vùng Làm Việc Trong Monorepo
+###  4.6. Phân Vùng Làm Việc Trong Monorepo
 Dự án dùng cấu trúc Monorepo (Frontend và Backend nằm chung 1 Repository), do đó:
 - Thành viên làm **Backend**: Chỉ thao tác và chỉnh sửa trong thư mục `backend/`.
 - Thành viên làm **Frontend**: Chỉ thao tác và chỉnh sửa trong thư mục `frontend/`.
