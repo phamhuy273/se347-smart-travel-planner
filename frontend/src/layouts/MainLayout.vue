@@ -125,7 +125,7 @@ const handleLogout = () => {
       </div>
     </header>
 
-    <!-- 2. BODY: BỌC HÌNH NỀN GỐC TỪ FIGMA (dashboard-bg.png) + SIDEBAR GỐC (sidebar-bg.png) -->
+    <!-- 2. BODY -->
     <div
       class="flex-1 flex min-h-0 relative bg-cover bg-center overflow-hidden p-4 gap-4"
       :style="{ backgroundImage: `url(${dashboardBg})` }"
@@ -157,8 +157,6 @@ const handleLogout = () => {
             </router-link>
           </nav>
         </div>
-
-        <!-- Khoảng trống phía dưới để lộ máy bay giấy và pin vẽ sẵn trong hình -->
         <div class="h-28 pointer-events-none"></div>
       </aside>
 
