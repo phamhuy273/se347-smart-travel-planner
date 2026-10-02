@@ -34,7 +34,6 @@ const handleLogout = () => {
 
 <template>
   <div class="flex flex-col h-screen w-screen overflow-hidden font-sans select-none">
-    <!-- 1. TOPBAR (Đồng bộ chuẩn 100% với MainLayout và Figma) -->
     <header class="h-16 bg-white border-b border-slate-200/80 px-6 flex items-center justify-between shadow-xs z-30 flex-shrink-0">
       <!-- Brand Logo -->
       <div class="flex items-center gap-2 cursor-pointer" @click="router.push('/dashboard')">
