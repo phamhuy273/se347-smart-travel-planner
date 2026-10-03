@@ -13,17 +13,31 @@ const routes: Array<RouteRecordRaw> = [
     path: '/login',
     name: 'Login',
     component: () => import('@/views/auth/LoginView.vue'),
+    meta: { guestOnly: true },
   },
   {
     path: '/register',
     name: 'Register',
     component: () => import('@/views/auth/RegisterView.vue'),
+    meta: { guestOnly: true },
+  },
+  {
+    path: '/forgot-password',
+    name: 'ForgotPassword',
+    component: () => import('@/views/auth/ForgotPasswordView.vue'),
+    meta: { guestOnly: true },
+  },
+  {
+    path: '/verify-email',
+    name: 'VerifyEmail',
+    component: () => import('@/views/auth/VerifyEmailView.vue'),
   },
 
   // 2. Main Layout Routes (Màn 4 Dashboard & Màn 5 Chuyến đi)
   {
     path: '/',
     component: MainLayout,
+    meta: { requiresAuth: true },
     children: [
       {
         path: 'dashboard',
@@ -42,6 +56,7 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/planner',
     component: PlannerLayout,
+    meta: { requiresAuth: true },
     children: [
       {
         path: ':id',
@@ -61,6 +76,28 @@ const routes: Array<RouteRecordRaw> = [
 const router = createRouter({
   history: createWebHistory(),
   routes,
+});
+
+// Navigation Guards (SW-11: Auth Protection)
+router.beforeEach((to, _from, next) => {
+  const token = localStorage.getItem('access_token');
+  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
+  const guestOnly = to.matched.some((record) => record.meta.guestOnly);
+
+  if (requiresAuth && !token) {
+    // Chưa đăng nhập mà truy cập trang bảo vệ -> redirect về login kèm redirect query
+    return next({
+      path: '/login',
+      query: { redirect: to.fullPath },
+    });
+  }
+
+  if (guestOnly && token) {
+    // Đã đăng nhập rồi mà vào login/register/forgot-password -> redirect vào dashboard
+    return next('/dashboard');
+  }
+
+  next();
 });
 
 export default router;

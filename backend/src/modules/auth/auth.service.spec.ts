@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AuthService } from './auth.service';
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
 describe('AuthService', () => {
@@ -61,5 +61,44 @@ describe('AuthService', () => {
 
     expect(result.accessToken).toBe('mock-token');
     expect(result.user.email).toBe('user@test.com');
+  });
+
+  it('should authenticate via Google Login and return token', async () => {
+    (mockPrisma.user as any).findFirst = vi.fn().mockResolvedValueOnce(null);
+    (mockPrisma.user as any).create = vi.fn().mockResolvedValueOnce({
+      id: 'google-user-1',
+      email: 'dev@gmail.com',
+      full_name: 'Google User',
+      google_id: 'mock_gid_dev@gmail.com',
+    });
+
+    const result = await service.googleLogin({
+      credential: 'mock:dev',
+      email: 'dev@gmail.com',
+      full_name: 'Google User',
+    });
+
+    expect(result.accessToken).toBe('mock-token');
+    expect(result.user.email).toBe('dev@gmail.com');
+  });
+
+  it('should generate OTP on forgotPassword', async () => {
+    mockPrisma.user.findUnique.mockResolvedValueOnce({
+      id: 'user-1',
+      email: 'forgot@test.com',
+    });
+    (mockPrisma.user as any).update = vi.fn().mockResolvedValueOnce({});
+
+    const result = await service.forgotPassword({ email: 'forgot@test.com' });
+    expect(result.message).toContain('Mã xác thực OTP');
+    expect(result.isEmailSent).toBeDefined();
+  });
+
+  it('should throw NotFoundException on forgotPassword if email does not exist', async () => {
+    mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+
+    await expect(
+      service.forgotPassword({ email: 'nonexistent@test.com' }),
+    ).rejects.toThrow(NotFoundException);
   });
 });
