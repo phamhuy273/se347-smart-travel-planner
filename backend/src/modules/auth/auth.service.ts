@@ -188,10 +188,7 @@ export class AuthService {
     });
 
     if (!user) {
-      // Bảo mật: không báo rõ email có tồn tại hay không
-      return {
-        message: 'Nếu email tồn tại trong hệ thống, mã xác thực OTP 6 số đã được gửi.',
-      };
+      throw new NotFoundException('Email này chưa được đăng ký tài khoản trong hệ thống. Vui lòng kiểm tra lại!');
     }
 
     // Sinh mã OTP 6 số ngẫu nhiên

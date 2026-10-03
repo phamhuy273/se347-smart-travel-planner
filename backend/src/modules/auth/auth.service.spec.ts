@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AuthService } from './auth.service';
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 
 describe('AuthService', () => {
@@ -92,5 +92,13 @@ describe('AuthService', () => {
     const result = await service.forgotPassword({ email: 'forgot@test.com' });
     expect(result.message).toContain('Mã xác thực OTP');
     expect(result.isEmailSent).toBeDefined();
+  });
+
+  it('should throw NotFoundException on forgotPassword if email does not exist', async () => {
+    mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+
+    await expect(
+      service.forgotPassword({ email: 'nonexistent@test.com' }),
+    ).rejects.toThrow(NotFoundException);
   });
 });
