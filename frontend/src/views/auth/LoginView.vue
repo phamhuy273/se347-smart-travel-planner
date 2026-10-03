@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
-import { useRouter } from 'vue-router';
-import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, AlertCircle } from 'lucide-vue-next';
+import { ref, reactive, onMounted } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-vue-next';
 import dashboardBg from '@/assets/dashboard-bg.png';
 import apiClient from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 
 const showPassword = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref('');
+const successMessage = ref('');
+
+onMounted(() => {
+  if (route.query.verified === 'true') {
+    successMessage.value = 'Kích hoạt tài khoản thành công! Vui lòng đăng nhập để bắt đầu.';
+  }
+  if (route.query.email) {
+    form.email = String(route.query.email);
+  }
+});
 
 const form = reactive({
   email: '',
@@ -212,6 +223,15 @@ const handleGoogleLogin = async () => {
             <p class="text-xs text-slate-500 mt-1.5">
               Đăng nhập để tiếp tục lên kế hoạch cho những chuyến đi đáng nhớ
             </p>
+          </div>
+
+          <!-- Alert Success Message (khi vừa kích hoạt email thành công) -->
+          <div
+            v-if="successMessage"
+            class="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2"
+          >
+            <CheckCircle2 class="w-4 h-4 flex-shrink-0 text-emerald-500" />
+            <span>{{ successMessage }}</span>
           </div>
 
           <!-- Alert Error Message -->

@@ -12,7 +12,7 @@ const authStore = useAuthStore();
 
 const status = ref<'loading' | 'success' | 'error'>('loading');
 const message = ref('');
-const countdown = ref(3);
+const countdown = ref(2);
 const userEmail = ref('');
 const isResending = ref(false);
 const resendSuccess = ref(false);
@@ -35,19 +35,18 @@ const handleVerify = async () => {
     });
 
     const data = response.data || response;
-    if (data.accessToken && data.user) {
-      authStore.setAuth(data.accessToken, data.user);
-    }
-
     status.value = 'success';
     message.value = data.message || 'Xác thực tài khoản thành công!';
 
-    // Tự động đếm ngược chuyển hướng sang dashboard
+    // Tự động đếm ngược 2s rồi chuyển hướng sang trang Đăng nhập
     const interval = setInterval(() => {
       countdown.value -= 1;
       if (countdown.value <= 0) {
         clearInterval(interval);
-        router.push('/dashboard');
+        router.push({
+          path: '/login',
+          query: { verified: 'true', email: userEmail.value },
+        });
       }
     }, 1000);
   } catch (err: any) {
@@ -133,16 +132,16 @@ onMounted(() => {
           </p>
 
           <div class="w-full p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 mb-6 flex items-center justify-center gap-2 text-xs text-emerald-800 font-medium">
-            <span>Tự động chuyển hướng vào Dashboard trong </span>
+            <span>Tự động chuyển sang trang Đăng nhập trong </span>
             <span class="font-extrabold text-emerald-600 text-sm bg-white px-2 py-0.5 rounded-md shadow-2xs">{{ countdown }}s</span>
           </div>
 
           <button
             type="button"
             class="w-full py-3 px-6 rounded-full bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white text-xs font-bold shadow-lg shadow-orange-500/25 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer"
-            @click="router.push('/dashboard')"
+            @click="router.push({ path: '/login', query: { verified: 'true', email: userEmail } })"
           >
-            <span>Vào Dashboard ngay</span>
+            <span>Đăng nhập ngay</span>
             <ArrowRight class="w-4 h-4" />
           </button>
         </div>
