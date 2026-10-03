@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Query,
   Body,
   UseGuards,
   HttpCode,
@@ -24,6 +25,17 @@ export class AuthController {
   @Post('register')
   async register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
+  }
+
+  @Get('verify-email')
+  async verifyEmail(@Query('token') token: string, @Query('email') email: string) {
+    return this.authService.verifyEmail(token, email);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('resend-verification')
+  async resendVerification(@Body('email') email: string) {
+    return this.authService.resendVerification(email);
   }
 
   @HttpCode(HttpStatus.OK)

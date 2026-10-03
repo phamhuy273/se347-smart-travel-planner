@@ -65,8 +65,8 @@ const handleLogin = async () => {
     router.push('/dashboard');
   } catch (err: any) {
     errorMessage.value =
-      err?.message ||
       err?.response?.data?.message ||
+      err?.message ||
       'Email hoặc mật khẩu không chính xác. Vui lòng thử lại!';
   } finally {
     isLoading.value = false;

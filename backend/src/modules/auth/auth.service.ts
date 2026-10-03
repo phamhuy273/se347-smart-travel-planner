@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -28,12 +29,34 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
+    const email = dto.email.toLowerCase().trim();
+
     // 1. Kiểm tra email đã tồn tại hay chưa
     const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase().trim() },
+      where: { email },
     });
 
     if (existingUser) {
+      if (!existingUser.is_verified) {
+        // Tài khoản đã đăng ký nhưng chưa kích hoạt -> làm mới token và gửi lại email
+        const verifyToken = crypto.randomBytes(32).toString('hex');
+        const verifyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await this.prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            verify_token: verifyToken,
+            verify_token_expires_at: verifyExpiresAt,
+          },
+        });
+        if (this.mailService) {
+          await this.mailService.sendVerificationEmail(existingUser.email, verifyToken, existingUser.full_name);
+        }
+        return {
+          message: 'Tài khoản này đã đăng ký nhưng chưa kích hoạt. Email xác nhận mới đã được gửi lại vào hòm thư của bạn!',
+          email: existingUser.email,
+          requiresVerification: true,
+        };
+      }
       throw new ConflictException('Email này đã được sử dụng. Vui lòng chọn email khác.');
     }
 
@@ -41,13 +64,20 @@ export class AuthService {
     const saltRounds = 10;
     const password_hash = await bcrypt.hash(dto.password, saltRounds);
 
-    // 3. Tạo tài khoản trong cơ sở dữ liệu
+    // 3. Sinh verify_token ngẫu nhiên an toàn (hạn 24 giờ)
+    const verifyToken = crypto.randomBytes(32).toString('hex');
+    const verifyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    // 4. Tạo tài khoản trong cơ sở dữ liệu với is_verified: false
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email.toLowerCase().trim(),
+        email,
         password_hash,
         full_name: dto.full_name.trim(),
         phone_number: dto.phone_number?.trim(),
+        is_verified: false,
+        verify_token: verifyToken,
+        verify_token_expires_at: verifyExpiresAt,
       },
       select: {
         id: true,
@@ -62,14 +92,94 @@ export class AuthService {
       },
     });
 
-    // 4. Sinh JWT access token
-    const payload = { sub: user.id, email: user.email };
+    // 5. Gửi email xác nhận kèm nút bấm kích hoạt
+    if (this.mailService) {
+      await this.mailService.sendVerificationEmail(user.email, verifyToken, user.full_name);
+    }
+
+    return {
+      message: 'Đăng ký thành công! Vui lòng kiểm tra email và bấm xác nhận để kích hoạt tài khoản của bạn.',
+      email: user.email,
+      requiresVerification: true,
+    };
+  }
+
+  async verifyEmail(token: string, email: string) {
+    const trimmedEmail = (email || '').toLowerCase().trim();
+    const user = await this.prisma.user.findUnique({
+      where: { email: trimmedEmail },
+    });
+
+    if (!user || user.verify_token !== token) {
+      throw new BadRequestException('Link xác nhận tài khoản không hợp lệ hoặc đã được sử dụng trước đó.');
+    }
+
+    if (user.verify_token_expires_at && new Date() > user.verify_token_expires_at) {
+      throw new BadRequestException('Link kích hoạt tài khoản đã hết hạn (24 giờ). Vui lòng yêu cầu gửi lại email xác nhận mới.');
+    }
+
+    // Đánh dấu is_verified: true và xoá verify_token
+    const updatedUser = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        is_verified: true,
+        verify_token: null,
+        verify_token_expires_at: null,
+      },
+      select: {
+        id: true,
+        email: true,
+        full_name: true,
+        avatar_url: true,
+        bio: true,
+        phone_number: true,
+        is_verified: true,
+        created_at: true,
+        updated_at: true,
+      },
+    });
+
+    // Tự động cấp access token cho user sau khi kích hoạt thành công
+    const payload = { sub: updatedUser.id, email: updatedUser.email };
     const accessToken = await this.jwtService.signAsync(payload);
 
     return {
-      user,
+      message: 'Kích hoạt tài khoản thành công! Chào mừng bạn gia nhập WanderFlow.',
+      user: updatedUser,
       accessToken,
     };
+  }
+
+  async resendVerification(email: string) {
+    const trimmedEmail = (email || '').toLowerCase().trim();
+    const user = await this.prisma.user.findUnique({
+      where: { email: trimmedEmail },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Không tìm thấy tài khoản với email này.');
+    }
+
+    if (user.is_verified) {
+      return { message: 'Tài khoản này đã được kích hoạt trước đó rồi. Bạn có thể đăng nhập ngay!' };
+    }
+
+    const verifyToken = crypto.randomBytes(32).toString('hex');
+    const verifyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        verify_token: verifyToken,
+        verify_token_expires_at: verifyExpiresAt,
+      },
+    });
+
+    if (this.mailService) {
+      await this.mailService.sendVerificationEmail(user.email, verifyToken, user.full_name);
+    }
+
+    return { message: 'Đã gửi lại email xác nhận kích hoạt tài khoản thành công. Vui lòng kiểm tra hòm thư!' };
   }
 
   async login(dto: LoginDto) {
@@ -90,11 +200,16 @@ export class AuthService {
       throw new UnauthorizedException('Email hoặc mật khẩu không chính xác');
     }
 
-    // 3. Sinh JWT access token
+    // 3. Chặn đăng nhập nếu chưa xác thực email
+    if (!user.is_verified) {
+      throw new UnauthorizedException('Tài khoản của bạn chưa được kích hoạt email. Vui lòng kiểm tra hộp thư để bấm xác nhận trước khi đăng nhập!');
+    }
+
+    // 4. Sinh JWT access token
     const payload = { sub: user.id, email: user.email };
     const accessToken = await this.jwtService.signAsync(payload);
 
-    // 4. Ẩn password_hash trước khi trả về
+    // 5. Ẩn password_hash trước khi trả về
     const { password_hash: _password_hash, verify_token: _verify_token, ...safeUser } = user;
 
     return {

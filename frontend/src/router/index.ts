@@ -27,6 +27,11 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import('@/views/auth/ForgotPasswordView.vue'),
     meta: { guestOnly: true },
   },
+  {
+    path: '/verify-email',
+    name: 'VerifyEmail',
+    component: () => import('@/views/auth/VerifyEmailView.vue'),
+  },
 
   // 2. Main Layout Routes (Màn 4 Dashboard & Màn 5 Chuyến đi)
   {
