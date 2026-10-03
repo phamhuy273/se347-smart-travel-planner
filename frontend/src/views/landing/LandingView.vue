@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   User,
@@ -19,12 +19,77 @@ import { useAuthStore } from '@/stores/auth.store';
 
 const router = useRouter();
 const authStore = useAuthStore();
-const activeNav = ref('home');
+const activeNav = ref<'home' | 'explore' | 'features'>('home');
+const isScrolled = ref(false);
+let lastScrollY = 0;
+
+const scrollToSection = (sectionId: 'home' | 'explore' | 'features') => {
+  if (sectionId === 'home') {
+    // Nếu đang ở top (< 30px) thì không có gì xảy ra
+    if (window.scrollY <= 30) return;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    activeNav.value = 'home';
+    return;
+  }
+
+  const target = document.getElementById(sectionId);
+  if (target) {
+    const navbarOffset = 90;
+    const elementPosition = target.getBoundingClientRect().top;
+    const offsetPosition = elementPosition + window.pageYOffset - navbarOffset;
+
+    window.scrollTo({
+      top: offsetPosition,
+      behavior: 'smooth',
+    });
+    activeNav.value = sectionId;
+  }
+};
+
+const handleScroll = () => {
+  const currentScrollY = window.scrollY;
+  const delta = currentScrollY - lastScrollY;
+
+  // Khi ở đỉnh trang (< 20px): luôn expand
+  if (currentScrollY <= 20) {
+    isScrolled.value = false;
+  } 
+  // Khi kéo xuống và đã qua 50px: thu nhỏ header
+  else if (delta > 6 && currentScrollY > 50) {
+    isScrolled.value = true;
+  } 
+  // Khi kéo lên: expand lại header
+  else if (delta < -6) {
+    isScrolled.value = false;
+  }
+
+  // Cập nhật lastScrollY khi có dịch chuyển đủ lớn
+  if (Math.abs(delta) > 6 || currentScrollY <= 20) {
+    lastScrollY = currentScrollY;
+  }
+
+  const scrollPos = currentScrollY + 130;
+  const exploreEl = document.getElementById('explore');
+  const featuresEl = document.getElementById('features');
+
+  if (featuresEl && scrollPos >= featuresEl.offsetTop) {
+    activeNav.value = 'features';
+  } else if (exploreEl && scrollPos >= exploreEl.offsetTop) {
+    activeNav.value = 'explore';
+  } else {
+    activeNav.value = 'home';
+  }
+};
 
 onMounted(() => {
   if (authStore.token && !authStore.user) {
     authStore.fetchProfile();
   }
+  window.addEventListener('scroll', handleScroll, { passive: true });
+});
+
+onUnmounted(() => {
+  window.removeEventListener('scroll', handleScroll);
 });
 
 const destinations = [
@@ -77,94 +142,124 @@ const handleGetStarted = () => {
 <template>
   <div class="min-h-screen w-full bg-white text-slate-800 font-sans select-none overflow-x-hidden">
     
+    <!-- FIXED FLOATING NAVBAR (Thu nhỏ mượt mà khi cuộn xuống, mở rộng khi cuộn lên) -->
+    <header class="fixed top-3 sm:top-4 left-0 right-0 z-50 px-4 sm:px-8 pointer-events-none transition-all duration-500 ease-out">
+      <div
+        :class="[
+          'mx-auto flex items-center justify-between rounded-full backdrop-blur-md border border-white/80 pointer-events-auto transition-all duration-500 ease-out will-change-[max-width,padding,box-shadow]',
+          isScrolled
+            ? 'max-w-5xl py-2 px-5 sm:px-6 bg-white/95 shadow-xl border-slate-200/60'
+            : 'max-w-7xl py-3 sm:py-3.5 px-6 sm:px-8 bg-white/90 shadow-md'
+        ]"
+      >
+        <!-- Logo -->
+        <router-link to="/" class="flex items-center gap-1 group" @click="scrollToSection('home')">
+          <span
+            :class="[
+              'font-black tracking-tight text-slate-900 group-hover:text-brand-orange transition-all duration-500 ease-out',
+              isScrolled ? 'text-xl' : 'text-2xl'
+            ]"
+          >
+            Trip<span class="text-brand-blue">Planner</span>
+          </span>
+        </router-link>
+
+        <!-- Nav Menu -->
+        <nav
+          :class="[
+            'hidden md:flex items-center text-xs font-bold text-slate-600 transition-all duration-500 ease-out',
+            isScrolled ? 'gap-6' : 'gap-8'
+          ]"
+        >
+          <button
+            type="button"
+            class="transition pb-0.5 cursor-pointer outline-none"
+            :class="activeNav === 'home' ? 'text-teal-600 font-extrabold border-b-2 border-teal-600' : 'hover:text-slate-900'"
+            @click="scrollToSection('home')"
+          >
+            Trang chủ
+          </button>
+          <button
+            type="button"
+            class="transition pb-0.5 cursor-pointer outline-none"
+            :class="activeNav === 'explore' ? 'text-teal-600 font-extrabold border-b-2 border-teal-600' : 'hover:text-slate-900'"
+            @click="scrollToSection('explore')"
+          >
+            Khám phá
+          </button>
+          <button
+            type="button"
+            class="transition pb-0.5 cursor-pointer outline-none"
+            :class="activeNav === 'features' ? 'text-teal-600 font-extrabold border-b-2 border-teal-600' : 'hover:text-slate-900'"
+            @click="scrollToSection('features')"
+          >
+            Tính năng
+          </button>
+        </nav>
+
+        <!-- Auth Actions -->
+        <div class="flex items-center gap-2.5 sm:gap-3">
+          <template v-if="!authStore.isLoggedIn">
+            <!-- Login Pill Button -->
+            <router-link
+              to="/login"
+              :class="[
+                'hidden sm:flex items-center gap-1.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-all duration-500 ease-out shadow-2xs',
+                isScrolled ? 'px-3 py-1.5 text-[11px]' : 'px-4 py-2 text-xs'
+              ]"
+            >
+              <User class="w-3.5 h-3.5 text-slate-400" />
+              <span>Đăng nhập</span>
+            </router-link>
+
+            <!-- Get Started Orange Button -->
+            <router-link
+              to="/register"
+              :class="[
+                'flex items-center gap-1.5 rounded-full bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white font-bold shadow-md shadow-orange-500/20 active:scale-95 transition-all duration-500 ease-out',
+                isScrolled ? 'px-3.5 sm:px-4 py-1.5 sm:py-2 text-[11px]' : 'px-4 sm:px-5 py-2 sm:py-2.5 text-xs'
+              ]"
+            >
+              <span>Bắt đầu lên kế hoạch</span>
+              <ArrowRight class="w-3.5 h-3.5" />
+            </router-link>
+          </template>
+
+          <!-- When Logged In: Show Profile & Dashboard Link -->
+          <template v-else>
+            <router-link
+              to="/dashboard"
+              :class="[
+                'flex items-center gap-2 rounded-full bg-teal-50 border border-teal-200 text-teal-800 font-bold hover:bg-teal-100 transition-all duration-500 ease-out shadow-2xs',
+                isScrolled ? 'px-3 py-1.5 text-[11px]' : 'px-4 py-2 text-xs'
+              ]"
+            >
+              <LayoutDashboard class="w-3.5 h-3.5 text-teal-600" />
+              <span>{{ authStore.displayName }}</span>
+            </router-link>
+            <button
+              :class="[
+                'rounded-full border border-slate-200 bg-white hover:bg-red-50 text-slate-500 hover:text-red-600 transition-all duration-500 ease-out',
+                isScrolled ? 'p-1.5' : 'p-2'
+              ]"
+              title="Đăng xuất"
+              @click="authStore.logout()"
+            >
+              <LogOut class="w-3.5 h-3.5" />
+            </button>
+          </template>
+        </div>
+      </div>
+    </header>
+
     <!-- 1. HERO SECTION WITH SCENIC BACKGROUND -->
     <section
-      class="relative w-full bg-cover bg-center bg-no-repeat pt-6 pb-20 sm:pb-32 overflow-hidden"
+      class="relative w-full bg-cover bg-center bg-no-repeat pt-24 sm:pt-28 pb-20 sm:pb-32 overflow-hidden"
       :style="{ backgroundImage: `url(${dashboardBg})` }"
     >
       <!-- Subtle Overlay -->
       <div class="absolute inset-0 bg-sky-900/10 pointer-events-none"></div>
 
-      <!-- FLOATING NAVBAR (Chuẩn Figma 100%) -->
-      <header class="relative z-30 max-w-7xl mx-auto px-4 sm:px-8 mb-10 sm:mb-14">
-        <div
-          class="flex items-center justify-between px-6 py-3 rounded-full bg-white/90 backdrop-blur-md border border-white/80 shadow-md"
-        >
-          <!-- Logo -->
-          <router-link to="/" class="flex items-center gap-1 group">
-            <span class="text-2xl font-black tracking-tight text-slate-900 group-hover:text-brand-orange transition">
-              Trip<span class="text-brand-blue">Planner</span>
-            </span>
-          </router-link>
-
-          <!-- Nav Menu -->
-          <nav class="hidden md:flex items-center gap-8 text-xs font-bold text-slate-600">
-            <a
-              href="#home"
-              class="transition pb-0.5"
-              :class="activeNav === 'home' ? 'text-teal-600 font-extrabold border-b-2 border-teal-600' : 'hover:text-slate-900'"
-              @click="activeNav = 'home'"
-            >
-              Trang chủ
-            </a>
-            <a
-              href="#explore"
-              class="hover:text-slate-900 transition"
-              @click="activeNav = 'explore'"
-            >
-              Khám phá
-            </a>
-            <a
-              href="#features"
-              class="hover:text-slate-900 transition"
-              @click="activeNav = 'features'"
-            >
-              Tính năng
-            </a>
-          </nav>
-
-          <!-- Auth Actions -->
-          <div class="flex items-center gap-3">
-            <template v-if="!authStore.isLoggedIn">
-              <!-- Login Pill Button -->
-              <router-link
-                to="/login"
-                class="hidden sm:flex items-center gap-1.5 px-4 py-2 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition shadow-2xs"
-              >
-                <User class="w-3.5 h-3.5 text-slate-400" />
-                <span>Đăng nhập</span>
-              </router-link>
-
-              <!-- Get Started Orange Button -->
-              <router-link
-                to="/register"
-                class="flex items-center gap-1.5 px-4 sm:px-5 py-2 sm:py-2.5 rounded-full bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white text-xs font-bold shadow-md shadow-orange-500/20 active:scale-95 transition"
-              >
-                <span>Bắt đầu lên kế hoạch</span>
-                <ArrowRight class="w-3.5 h-3.5" />
-              </router-link>
-            </template>
-
-            <!-- When Logged In: Show Profile & Dashboard Link -->
-            <template v-else>
-              <router-link
-                to="/dashboard"
-                class="flex items-center gap-2 px-4 py-2 rounded-full bg-teal-50 border border-teal-200 text-teal-800 text-xs font-bold hover:bg-teal-100 transition shadow-2xs"
-              >
-                <LayoutDashboard class="w-3.5 h-3.5 text-teal-600" />
-                <span>{{ authStore.displayName }}</span>
-              </router-link>
-              <button
-                class="p-2 rounded-full border border-slate-200 bg-white hover:bg-red-50 text-slate-500 hover:text-red-600 transition"
-                title="Đăng xuất"
-                @click="authStore.logout()"
-              >
-                <LogOut class="w-3.5 h-3.5" />
-              </button>
-            </template>
-          </div>
-        </div>
-      </header>
 
       <!-- HERO CONTENT (Split: Text CTA bên trái & Mockup UI bên phải) -->
       <div id="home" class="relative z-10 max-w-7xl mx-auto px-4 sm:px-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center pt-2 pb-8">
@@ -197,13 +292,14 @@ const handleGetStarted = () => {
               <ArrowRight class="w-3.5 h-3.5" />
             </button>
 
-            <a
-              href="#explore"
-              class="px-4 sm:px-5 py-3 rounded-full bg-white/90 hover:bg-white border border-teal-500/50 text-teal-700 text-xs font-bold shadow-xs active:scale-95 transition flex items-center gap-2"
+            <button
+              type="button"
+              class="px-4 sm:px-5 py-3 rounded-full bg-white/90 hover:bg-white border border-teal-500/50 text-teal-700 text-xs font-bold shadow-xs active:scale-95 transition flex items-center gap-2 cursor-pointer"
+              @click="scrollToSection('explore')"
             >
               <Compass class="w-3.5 h-3.5 text-teal-600" />
               <span>Khám phá điểm đến</span>
-            </a>
+            </button>
           </div>
 
           <!-- Social Proof Avatars -->
@@ -325,13 +421,14 @@ const handleGetStarted = () => {
             Những điểm đến hot nhất, được yêu thích bởi cộng đồng TripPlanner
           </p>
         </div>
-        <a
-          href="#explore"
-          class="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 hover:underline transition"
+        <button
+          type="button"
+          class="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 hover:underline transition cursor-pointer"
+          @click="scrollToSection('explore')"
         >
           <span>Xem tất cả</span>
           <ArrowRight class="w-3.5 h-3.5" />
-        </a>
+        </button>
       </div>
 
       <!-- Destination Cards Grid (5 Cards) -->
