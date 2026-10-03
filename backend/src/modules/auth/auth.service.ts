@@ -221,7 +221,6 @@ export class AuthService {
         ? `Mã xác thực OTP 6 số đã được gửi trực tiếp đến hộp thư ${email}.`
         : 'Mã xác thực OTP 6 số đã được tạo thành công.',
       isEmailSent,
-      devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
     };
   }
 

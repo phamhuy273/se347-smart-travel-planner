@@ -91,7 +91,6 @@ describe('AuthService', () => {
 
     const result = await service.forgotPassword({ email: 'forgot@test.com' });
     expect(result.message).toContain('Mã xác thực OTP');
-    expect(result.devOtp).toBeDefined();
-    expect(result.devOtp).toHaveLength(6);
+    expect(result.isEmailSent).toBeDefined();
   });
 });

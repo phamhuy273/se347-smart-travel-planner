@@ -15,7 +15,6 @@ const step = ref<1 | 2 | 3>(1);
 const isLoading = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
-const devOtpCode = ref('');
 
 // Đếm ngược gửi lại mã OTP (60s)
 const countdown = ref(0);
@@ -122,9 +121,6 @@ const handleSendOtp = async () => {
 
     const resData = response.data || response;
     successMessage.value = resData.message || 'Mã xác thực OTP đã được gửi đến email của bạn.';
-    if (resData.devOtp) {
-      devOtpCode.value = resData.devOtp;
-    }
     step.value = 2;
     startCountdown();
     nextTick(() => {
@@ -173,14 +169,6 @@ const handleVerifyOtp = async () => {
       'Mã OTP không chính xác hoặc đã hết hạn. Vui lòng kiểm tra lại!';
   } finally {
     isLoading.value = false;
-  }
-};
-
-const fillDevOtp = () => {
-  if (devOtpCode.value && devOtpCode.value.length === 6) {
-    devOtpCode.value.split('').forEach((d, idx) => {
-      otpDigits.value[idx] = d;
-    });
   }
 };
 
@@ -355,17 +343,6 @@ const handleResetPassword = async () => {
             <CheckCircle2 class="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
             <div>
               <p class="font-bold">{{ successMessage }}</p>
-              <!-- Nút click tự động điền OTP nếu ở chế độ dev -->
-              <div v-if="devOtpCode && step === 2" class="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  class="px-2.5 py-1 rounded-full bg-emerald-600 text-white font-bold text-[11px] hover:bg-emerald-700 transition shadow-2xs flex items-center gap-1 cursor-pointer"
-                  @click="fillDevOtp"
-                >
-                  <Sparkles class="w-3 h-3" />
-                  Điền nhanh mã Dev OTP: {{ devOtpCode }}
-                </button>
-              </div>
             </div>
           </div>
 
