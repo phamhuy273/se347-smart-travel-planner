@@ -138,11 +138,14 @@ export class MailService {
       </html>
     `;
 
+    const text = `Xin chào ${recipientName},\n\nMã xác thực đặt lại mật khẩu WanderFlow của bạn là: ${otp}\nMã này có hiệu lực trong 15 phút.\nNếu bạn không yêu cầu mã này, vui lòng bỏ qua email.\n\nTrân trọng,\nĐội ngũ TripPlanner (WanderFlow)`;
+
     try {
       const info = await this.transporter.sendMail({
         from,
         to: toEmail,
         subject: `[WanderFlow] ${otp} là mã xác thực đặt lại mật khẩu của bạn`,
+        text,
         html,
       });
       this.logger.log(`Real OTP email sent to ${toEmail}. Message ID: ${info.messageId}`);
@@ -267,10 +270,20 @@ export class MailService {
     `;
 
     try {
+      this.logger.log(`
+======================================================================
+[EMAIL KÍCH HOẠT TÀI KHOẢN]
+Gửi tới: ${toEmail}
+Link xác nhận: ${verifyUrl}
+======================================================================`);
+
+      const text = `Xin chào ${recipientName},\n\nCảm ơn bạn đã đăng ký tài khoản tại TripPlanner (WanderFlow).\nVui lòng mở liên kết sau để kích hoạt tài khoản của bạn:\n${verifyUrl}\n\nLiên kết này có hiệu lực trong 24 giờ.\n\nTrân trọng,\nĐội ngũ TripPlanner (WanderFlow)`;
+
       const info = await this.transporter.sendMail({
         from,
         to: toEmail,
         subject: `[WanderFlow] Xác nhận kích hoạt tài khoản của bạn`,
+        text,
         html,
       });
       this.logger.log(`Verification email sent to ${toEmail}. Message ID: ${info.messageId}`);
