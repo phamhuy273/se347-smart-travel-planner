@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useAuthStore } from '@/stores/auth.store';
 import {
   MapPin,
   Clock,
@@ -22,6 +23,7 @@ import {
 // ─── Clock & Date ────────────────────────────────────────────────
 const now = ref(new Date());
 let clockInterval: ReturnType<typeof setInterval>;
+const authStore = useAuthStore();
 
 onMounted(() => {
   clockInterval = setInterval(() => {
@@ -223,6 +225,9 @@ const scrollFeatured = (direction: 'left' | 'right') => {
 
 <template>
   <div class="flex flex-col gap-5 pb-4">
+    <!-- Greeting -->
+    <h2 class="text-xl font-bold text-slate-800">Chào, {{ authStore.displayName }}! 👋</h2>
+
     <!-- ═══════════════════════════════════════════════════════════
          1. BANNER — Khám phá điểm đến mới
          ═══════════════════════════════════════════════════════════ -->

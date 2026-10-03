@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { useAuthStore } from '@/stores/auth.store';
 import {
   Home,
   Map,
@@ -22,11 +23,10 @@ const route = useRoute();
 const showUserMenu = ref(false);
 const searchQuery = ref('');
 
-// User profile state matching Figma
-const user = ref({
-  name: 'Pham Huy',
-  email: 'phamhuy@example.com',
-});
+// Dynamic user info from auth store
+const authStore = useAuthStore();
+const userName = computed(() => authStore.displayName);
+const userEmail = computed(() => authStore.user?.email ?? '');
 
 const menuItems = [
   { name: 'Trang chủ', path: '/dashboard', icon: Home },
@@ -36,8 +36,7 @@ const menuItems = [
 ];
 
 const handleLogout = () => {
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('user_info');
+  authStore.logout();
   router.push('/login');
 };
 </script>
@@ -100,7 +99,7 @@ const handleLogout = () => {
             <div class="w-7 h-7 rounded-full bg-[#0D9488] text-white flex items-center justify-center font-bold text-xs ring-2 ring-emerald-500/20">
               PH
             </div>
-            <span class="text-xs font-bold text-slate-800 hidden sm:inline">{{ user.name }}</span>
+            <span class="text-xs font-bold text-slate-800 hidden sm:inline">{{ userName }}</span>
             <ChevronDown class="w-3.5 h-3.5 text-slate-400" />
           </button>
 
@@ -111,7 +110,7 @@ const handleLogout = () => {
           >
             <div class="px-4 py-2 border-b border-slate-100">
               <p class="text-[11px] text-slate-400">Đăng nhập với</p>
-              <p class="text-xs font-bold text-slate-900 truncate">{{ user.email }}</p>
+              <p class="text-xs font-bold text-slate-900 truncate">{{ userEmail }}</p>
             </div>
             <button
               class="w-full px-4 py-2 text-left text-xs text-red-600 hover:bg-red-50 flex items-center gap-2 transition"
