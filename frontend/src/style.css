@@ -16,3 +16,7 @@ body {
   color: #0F172A;
   -webkit-font-smoothing: antialiased;
 }
+
+.font-handwriting {
+  font-family: 'Caveat', cursive;
+}
