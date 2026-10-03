@@ -38,21 +38,29 @@ export class AuthService {
 
     if (existingUser) {
       if (!existingUser.is_verified) {
-        // Tài khoản đã đăng ký nhưng chưa kích hoạt -> làm mới token và gửi lại email
+        // Tài khoản đã đăng ký nhưng chưa kích hoạt:
+        // Cập nhật lại mật khẩu & họ tên mới nhất (phòng trường hợp người dùng gõ nhầm ở lần 1),
+        // đồng thời làm mới token và gửi lại email xác nhận mới nhất.
+        const password_hash = await bcrypt.hash(dto.password, 10);
         const verifyToken = crypto.randomBytes(32).toString('hex');
         const verifyExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
         await this.prisma.user.update({
           where: { id: existingUser.id },
           data: {
+            full_name: dto.full_name.trim(),
+            password_hash,
             verify_token: verifyToken,
             verify_token_expires_at: verifyExpiresAt,
           },
         });
+
         if (this.mailService) {
-          await this.mailService.sendVerificationEmail(existingUser.email, verifyToken, existingUser.full_name);
+          await this.mailService.sendVerificationEmail(existingUser.email, verifyToken, dto.full_name.trim());
         }
+
         return {
-          message: 'Tài khoản này đã đăng ký nhưng chưa kích hoạt. Email xác nhận mới đã được gửi lại vào hòm thư của bạn!',
+          message: 'Tài khoản này chưa kích hoạt. Thông tin của bạn đã được cập nhật và email kích hoạt mới đã được gửi!',
           email: existingUser.email,
           requiresVerification: true,
         };
