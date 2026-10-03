@@ -14,6 +14,7 @@ import { LoginDto } from './dto/login.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { MailService } from './mail.service';
 
 @Injectable()
@@ -221,6 +222,31 @@ export class AuthService {
         : 'Mã xác thực OTP 6 số đã được tạo thành công.',
       isEmailSent,
       devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
+    };
+  }
+
+  async verifyOtp(dto: VerifyOtpDto) {
+    const email = dto.email.toLowerCase().trim();
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user || !user.verify_token || !user.verify_token_expires_at) {
+      throw new BadRequestException('Yêu cầu xác thực OTP không hợp lệ hoặc đã hết hạn.');
+    }
+
+    if (new Date() > user.verify_token_expires_at) {
+      throw new BadRequestException('Mã OTP đã hết hạn. Vui lòng yêu cầu gửi lại mã mới.');
+    }
+
+    const isOtpValid = await bcrypt.compare(dto.otp.trim(), user.verify_token);
+    if (!isOtpValid) {
+      throw new BadRequestException('Mã OTP không chính xác. Vui lòng kiểm tra lại.');
+    }
+
+    return {
+      message: 'Xác thực mã OTP thành công!',
+      valid: true,
     };
   }
 

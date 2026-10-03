@@ -1,25 +1,86 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, ArrowLeft, CheckCircle2, AlertCircle, KeyRound, Sparkles } from 'lucide-vue-next';
+import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, ArrowLeft, CheckCircle2, AlertCircle, KeyRound, Sparkles, RefreshCw, ShieldCheck } from 'lucide-vue-next';
 import dashboardBg from '@/assets/dashboard-bg.png';
 import apiClient from '@/services/api.client';
 
 const router = useRouter();
 
-// 2 bước: 1 = Nhập Email gửi OTP, 2 = Nhập OTP và Mật khẩu mới
-const step = ref<1 | 2>(1);
+// 3 bước độc lập:
+// 1 = Nhập Email gửi OTP
+// 2 = Nhập & Xác thực mã OTP (chỉ khi đúng mới sang bước 3)
+// 3 = Nhập Mật khẩu mới & hoàn tất
+const step = ref<1 | 2 | 3>(1);
 const isLoading = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
 const devOtpCode = ref('');
+
+// Đếm ngược gửi lại mã OTP (60s)
+const countdown = ref(0);
+let timer: ReturnType<typeof setInterval> | null = null;
+
+const startCountdown = () => {
+  countdown.value = 60;
+  if (timer) clearInterval(timer);
+  timer = setInterval(() => {
+    if (countdown.value > 0) {
+      countdown.value--;
+    } else {
+      if (timer) clearInterval(timer);
+    }
+  }, 1000);
+};
+
+onUnmounted(() => {
+  if (timer) clearInterval(timer);
+});
+
+// 6 ô nhập mã OTP riêng biệt (Boarding Pass aesthetic)
+const otpDigits = ref(['', '', '', '', '', '']);
+const digitInputs = ref<HTMLInputElement[]>([]);
+
+const handleDigitInput = (index: number, event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const val = input.value.replace(/\D/g, ''); // Chỉ nhận số
+  otpDigits.value[index] = val ? val[val.length - 1] : '';
+
+  if (val && index < 5) {
+    nextTick(() => {
+      digitInputs.value[index + 1]?.focus();
+    });
+  }
+};
+
+const handleDigitKeydown = (index: number, event: KeyboardEvent) => {
+  if (event.key === 'Backspace' && !otpDigits.value[index] && index > 0) {
+    nextTick(() => {
+      digitInputs.value[index - 1]?.focus();
+    });
+  }
+};
+
+const handleDigitPaste = (event: ClipboardEvent) => {
+  event.preventDefault();
+  const pasted = event.clipboardData?.getData('text') || '';
+  const digits = pasted.replace(/\D/g, '').slice(0, 6).split('');
+  digits.forEach((d, idx) => {
+    if (idx < 6) otpDigits.value[idx] = d;
+  });
+  if (digits.length > 0) {
+    const nextIdx = Math.min(digits.length, 5);
+    nextTick(() => {
+      digitInputs.value[nextIdx]?.focus();
+    });
+  }
+};
 
 const showNewPassword = ref(false);
 const showConfirmPassword = ref(false);
 
 const form = reactive({
   email: '',
-  otp: '',
   newPassword: '',
   confirmPassword: '',
 });
@@ -31,6 +92,7 @@ const errors = reactive({
   confirmPassword: '',
 });
 
+// ─── BƯỚC 1: GỬI MÃ OTP ──────────────────────────────────────────
 const validateStep1 = () => {
   errors.email = '';
   errorMessage.value = '';
@@ -64,6 +126,10 @@ const handleSendOtp = async () => {
       devOtpCode.value = resData.devOtp;
     }
     step.value = 2;
+    startCountdown();
+    nextTick(() => {
+      digitInputs.value[0]?.focus();
+    });
   } catch (err: any) {
     errorMessage.value =
       err?.response?.data?.message ||
@@ -74,20 +140,56 @@ const handleSendOtp = async () => {
   }
 };
 
-const validateStep2 = () => {
-  let isValid = true;
+// ─── BƯỚC 2: XÁC THỰC MÃ OTP ────────────────────────────────────
+const handleVerifyOtp = async () => {
+  const otpCode = otpDigits.value.join('').trim();
+  errorMessage.value = '';
   errors.otp = '';
+
+  if (otpCode.length !== 6) {
+    errors.otp = 'Vui lòng nhập đủ 6 chữ số mã OTP';
+    return;
+  }
+
+  isLoading.value = true;
+
+  try {
+    const response: any = await apiClient.post('/auth/verify-otp', {
+      email: form.email.trim(),
+      otp: otpCode,
+    });
+
+    const resData = response.data || response;
+    successMessage.value = resData.message || 'Xác thực mã OTP thành công!';
+    // Chuyển sang bước 3: đặt mật khẩu mới
+    setTimeout(() => {
+      step.value = 3;
+      successMessage.value = '';
+    }, 400);
+  } catch (err: any) {
+    errorMessage.value =
+      err?.response?.data?.message ||
+      err?.message ||
+      'Mã OTP không chính xác hoặc đã hết hạn. Vui lòng kiểm tra lại!';
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const fillDevOtp = () => {
+  if (devOtpCode.value && devOtpCode.value.length === 6) {
+    devOtpCode.value.split('').forEach((d, idx) => {
+      otpDigits.value[idx] = d;
+    });
+  }
+};
+
+// ─── BƯỚC 3: ĐẶT MẬT KHẨU MỚI ───────────────────────────────────
+const validateStep3 = () => {
+  let isValid = true;
   errors.newPassword = '';
   errors.confirmPassword = '';
   errorMessage.value = '';
-
-  if (!form.otp.trim()) {
-    errors.otp = 'Vui lòng nhập mã OTP gồm 6 chữ số';
-    isValid = false;
-  } else if (!/^\d{6}$/.test(form.otp.trim())) {
-    errors.otp = 'Mã OTP phải gồm đúng 6 chữ số';
-    isValid = false;
-  }
 
   if (!form.newPassword) {
     errors.newPassword = 'Vui lòng nhập mật khẩu mới';
@@ -101,7 +203,7 @@ const validateStep2 = () => {
   }
 
   if (!form.confirmPassword) {
-    errors.confirmPassword = 'Vui lòng xác nhận mật khẩu mới';
+    errors.confirmPassword = 'Vui lòng xác nhận lại mật khẩu mới';
     isValid = false;
   } else if (form.newPassword !== form.confirmPassword) {
     errors.confirmPassword = 'Mật khẩu xác nhận không trùng khớp';
@@ -112,8 +214,9 @@ const validateStep2 = () => {
 };
 
 const handleResetPassword = async () => {
-  if (!validateStep2()) return;
+  if (!validateStep3()) return;
 
+  const otpCode = otpDigits.value.join('').trim();
   isLoading.value = true;
   errorMessage.value = '';
   successMessage.value = '';
@@ -121,14 +224,13 @@ const handleResetPassword = async () => {
   try {
     const response: any = await apiClient.post('/auth/reset-password', {
       email: form.email.trim(),
-      otp: form.otp.trim(),
+      otp: otpCode,
       new_password: form.newPassword,
     });
 
     const resData = response.data || response;
     successMessage.value = resData.message || 'Đặt lại mật khẩu thành công!';
 
-    // Tự động chuyển hướng về trang đăng nhập sau 2 giây
     setTimeout(() => {
       router.push('/login');
     }, 2000);
@@ -136,15 +238,9 @@ const handleResetPassword = async () => {
     errorMessage.value =
       err?.response?.data?.message ||
       err?.message ||
-      'Đặt lại mật khẩu thất bại. Vui lòng kiểm tra lại mã OTP!';
+      'Đặt lại mật khẩu thất bại. Vui lòng thử lại!';
   } finally {
     isLoading.value = false;
-  }
-};
-
-const fillDevOtp = () => {
-  if (devOtpCode.value) {
-    form.otp = devOtpCode.value;
   }
 };
 </script>
@@ -155,7 +251,7 @@ const fillDevOtp = () => {
     :style="{ backgroundImage: `url(${dashboardBg})` }"
   >
     <!-- Background Blur & Soft Overlay -->
-    <div class="absolute inset-0 bg-slate-900/30 backdrop-blur-[2px]"></div>
+    <div class="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"></div>
 
     <!-- Header Mini Pill Bar -->
     <header class="relative z-20 px-6 sm:px-12 pt-5 flex items-center justify-between">
@@ -176,7 +272,7 @@ const fillDevOtp = () => {
     <main class="relative z-20 flex-1 flex items-center justify-center px-4 py-8">
       <div class="w-full max-w-4xl bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/60 overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[520px]">
         
-        <!-- Cột Trái: Polaroid & Lời nhắn -->
+        <!-- Cột Trái: Polaroid & Thông tin bảo mật -->
         <div class="lg:col-span-5 bg-gradient-to-br from-teal-50/80 via-white/40 to-orange-50/60 p-6 sm:p-8 flex flex-col justify-between items-center relative overflow-hidden border-b lg:border-b-0 lg:border-r border-slate-100">
           <div class="w-full text-center sm:text-left z-10">
             <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-100/80 text-teal-800 text-[11px] font-bold uppercase tracking-wider mb-2">
@@ -186,9 +282,33 @@ const fillDevOtp = () => {
             <h1 class="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
               Khôi phục mật khẩu
             </h1>
-            <p class="text-xs text-slate-500 mt-1">
-              Đừng lo lắng, WanderFlow sẽ giúp bạn lấy lại quyền truy cập chuyến đi trong vài bước!
-            </p>
+            
+            <!-- Tiến trình 3 bước -->
+            <div class="mt-4 flex items-center gap-2">
+              <div class="flex items-center gap-1.5">
+                <span
+                  class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition"
+                  :class="step >= 1 ? 'bg-teal-600 text-white' : 'bg-slate-200 text-slate-500'"
+                >1</span>
+                <span class="text-[11px] font-semibold" :class="step === 1 ? 'text-teal-700' : 'text-slate-400'">Email</span>
+              </div>
+              <span class="text-slate-300">→</span>
+              <div class="flex items-center gap-1.5">
+                <span
+                  class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition"
+                  :class="step >= 2 ? 'bg-teal-600 text-white' : 'bg-slate-200 text-slate-500'"
+                >2</span>
+                <span class="text-[11px] font-semibold" :class="step === 2 ? 'text-teal-700' : 'text-slate-400'">Mã OTP</span>
+              </div>
+              <span class="text-slate-300">→</span>
+              <div class="flex items-center gap-1.5">
+                <span
+                  class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition"
+                  :class="step === 3 ? 'bg-teal-600 text-white' : 'bg-slate-200 text-slate-500'"
+                >3</span>
+                <span class="text-[11px] font-semibold" :class="step === 3 ? 'text-teal-700' : 'text-slate-400'">Mật khẩu</span>
+              </div>
+            </div>
           </div>
 
           <!-- Polaroid Card -->
@@ -211,11 +331,11 @@ const fillDevOtp = () => {
           </div>
 
           <div class="text-[11px] text-slate-400 text-center w-full z-10">
-            Cần hỗ trợ trực tiếp? <span class="text-teal-600 font-semibold cursor-pointer hover:underline">support@wanderflow.vn</span>
+            Hỗ trợ 24/7: <span class="text-teal-600 font-semibold">support@wanderflow.vn</span>
           </div>
         </div>
 
-        <!-- Cột Phải: Form Khôi phục 2 Bước -->
+        <!-- Cột Phải: Form 3 Bước Tuần Tự -->
         <div class="lg:col-span-7 p-6 sm:p-10 flex flex-col justify-center">
           
           <!-- Thông báo lỗi -->
@@ -239,7 +359,7 @@ const fillDevOtp = () => {
               <div v-if="devOtpCode && step === 2" class="mt-2 flex items-center gap-2">
                 <button
                   type="button"
-                  class="px-2.5 py-1 rounded-full bg-emerald-600 text-white font-bold text-[11px] hover:bg-emerald-700 transition shadow-2xs flex items-center gap-1"
+                  class="px-2.5 py-1 rounded-full bg-emerald-600 text-white font-bold text-[11px] hover:bg-emerald-700 transition shadow-2xs flex items-center gap-1 cursor-pointer"
                   @click="fillDevOtp"
                 >
                   <Sparkles class="w-3 h-3" />
@@ -249,13 +369,15 @@ const fillDevOtp = () => {
             </div>
           </div>
 
+          <!-- ══════════════════════════════════════════════════════════ -->
           <!-- BƯỚC 1: NHẬP EMAIL -->
+          <!-- ══════════════════════════════════════════════════════════ -->
           <div v-if="step === 1">
             <h2 class="text-base font-bold text-slate-900 mb-1">
               Nhập email tài khoản của bạn
             </h2>
             <p class="text-xs text-slate-500 mb-6">
-              Hệ thống sẽ gửi một mã xác thực OTP gồm 6 chữ số đến hòm thư của bạn.
+              Hệ thống sẽ gửi một mã OTP gồm 6 chữ số trực tiếp vào hòm thư Gmail của bạn.
             </p>
 
             <form class="space-y-4" @submit.prevent="handleSendOtp">
@@ -284,7 +406,7 @@ const fillDevOtp = () => {
                 :disabled="isLoading"
                 class="w-full py-2.5 px-4 rounded-full bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:from-[#EA580C] hover:to-[#C2410C] text-white text-xs font-bold shadow-md shadow-orange-500/20 flex items-center justify-center gap-2 transition active:scale-98 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
               >
-                <span v-if="isLoading">Đang xử lý...</span>
+                <span v-if="isLoading">Đang gửi mã...</span>
                 <template v-else>
                   <span>Gửi mã xác thực OTP</span>
                   <ArrowRight class="w-4 h-4" />
@@ -293,20 +415,22 @@ const fillDevOtp = () => {
             </form>
           </div>
 
-          <!-- BƯỚC 2: NHẬP MÃ OTP VÀ MẬT KHẨU MỚI -->
-          <div v-else>
+          <!-- ══════════════════════════════════════════════════════════ -->
+          <!-- BƯỚC 2: NHẬP VÀ XÁC THỰC MÃ OTP (RIÊNG BIỆT) -->
+          <!-- ══════════════════════════════════════════════════════════ -->
+          <div v-else-if="step === 2">
             <div class="flex items-center justify-between mb-4">
               <div>
                 <h2 class="text-base font-bold text-slate-900">
-                  Xác nhận mã OTP & Đặt mật khẩu mới
+                  Nhập mã xác thực OTP
                 </h2>
                 <p class="text-xs text-slate-500 mt-0.5">
-                  Mã OTP gửi đến: <strong class="text-slate-800">{{ form.email }}</strong>
+                  Đã gửi đến: <strong class="text-slate-800">{{ form.email }}</strong>
                 </p>
               </div>
               <button
                 type="button"
-                class="text-xs font-semibold text-teal-600 hover:text-teal-700 flex items-center gap-1 transition"
+                class="text-xs font-semibold text-teal-600 hover:text-teal-700 flex items-center gap-1 transition cursor-pointer"
                 @click="step = 1"
               >
                 <ArrowLeft class="w-3.5 h-3.5" />
@@ -314,28 +438,84 @@ const fillDevOtp = () => {
               </button>
             </div>
 
-            <form class="space-y-3.5" @submit.prevent="handleResetPassword">
-              <!-- Mã OTP -->
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">
-                  Mã xác thực OTP (6 chữ số)
-                </label>
-                <div class="relative rounded-xl">
-                  <KeyRound class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    v-model="form.otp"
-                    type="text"
-                    maxlength="6"
-                    placeholder="Nhập 6 chữ số (ví dụ: 123456)"
-                    class="w-full pl-10 pr-3.5 py-2.5 text-xs font-mono font-bold tracking-widest rounded-xl border transition focus:outline-none focus:ring-2 placeholder:text-slate-400"
-                    :class="errors.otp ? 'border-red-300 focus:border-red-500 focus:ring-red-100' : 'border-slate-200 focus:border-teal-500 focus:ring-teal-100'"
-                  />
-                </div>
-                <p v-if="errors.otp" class="mt-1 text-[11px] text-red-500 font-medium">
-                  {{ errors.otp }}
-                </p>
+            <!-- Giao diện 6 ô nhập số riêng biệt chuẩn vé du lịch -->
+            <div class="my-6">
+              <label class="block text-xs font-semibold text-slate-700 mb-2 text-center">
+                Nhập 6 chữ số mã xác thực
+              </label>
+              <div class="flex justify-center items-center gap-2 sm:gap-3" @paste="handleDigitPaste">
+                <input
+                  v-for="(_, idx) in otpDigits"
+                  :key="idx"
+                  ref="digitInputs"
+                  v-model="otpDigits[idx]"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="1"
+                  class="w-11 h-14 sm:w-12 sm:h-14 text-center text-xl sm:text-2xl font-black text-slate-900 rounded-xl border-2 transition outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-100/80 bg-slate-50/50 focus:bg-white shadow-2xs"
+                  :class="otpDigits[idx] ? 'border-teal-500 bg-white' : 'border-slate-200'"
+                  @input="handleDigitInput(idx, $event)"
+                  @keydown="handleDigitKeydown(idx, $event)"
+                />
               </div>
+              <p v-if="errors.otp" class="mt-2 text-center text-[11px] text-red-500 font-medium">
+                {{ errors.otp }}
+              </p>
+            </div>
 
+            <!-- Nút Xác thực OTP -->
+            <button
+              type="button"
+              :disabled="isLoading"
+              class="w-full py-2.5 px-4 rounded-full bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800 text-white text-xs font-bold shadow-md shadow-teal-600/20 flex items-center justify-center gap-2 transition active:scale-98 disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
+              @click="handleVerifyOtp"
+            >
+              <span v-if="isLoading">Đang kiểm tra...</span>
+              <template v-else>
+                <span>Xác thực mã OTP</span>
+                <ShieldCheck class="w-4 h-4" />
+              </template>
+            </button>
+
+            <!-- Gửi lại mã OTP với countdown -->
+            <div class="mt-4 text-center">
+              <p class="text-xs text-slate-500">
+                Chưa nhận được email?
+                <button
+                  v-if="countdown === 0"
+                  type="button"
+                  :disabled="isLoading"
+                  class="font-bold text-teal-600 hover:text-teal-700 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                  @click="handleSendOtp"
+                >
+                  <RefreshCw class="w-3 h-3" />
+                  Gửi lại mã OTP
+                </button>
+                <span v-else class="font-bold text-slate-400">
+                  Gửi lại sau ({{ countdown }}s)
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <!-- ══════════════════════════════════════════════════════════ -->
+          <!-- BƯỚC 3: NHẬP MẬT KHẨU MỚI (CHỈ MỞ KHI OTP ĐÃ HỢP LỆ) -->
+          <!-- ══════════════════════════════════════════════════════════ -->
+          <div v-else-if="step === 3">
+            <div class="mb-5">
+              <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold mb-2 border border-emerald-200">
+                <CheckCircle2 class="w-3.5 h-3.5 text-emerald-600" />
+                Mã OTP đã được xác thực thành công
+              </div>
+              <h2 class="text-base font-bold text-slate-900">
+                Thiết lập mật khẩu mới
+              </h2>
+              <p class="text-xs text-slate-500 mt-0.5">
+                Vui lòng đặt mật khẩu mới có độ bảo mật cao cho tài khoản của bạn.
+              </p>
+            </div>
+
+            <form class="space-y-3.5" @submit.prevent="handleResetPassword">
               <!-- Mật khẩu mới -->
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">
@@ -352,7 +532,7 @@ const fillDevOtp = () => {
                   />
                   <button
                     type="button"
-                    class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition"
+                    class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer"
                     @click="showNewPassword = !showNewPassword"
                   >
                     <Eye v-if="!showNewPassword" class="w-4 h-4" />
@@ -380,7 +560,7 @@ const fillDevOtp = () => {
                   />
                   <button
                     type="button"
-                    class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition"
+                    class="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition cursor-pointer"
                     @click="showConfirmPassword = !showConfirmPassword"
                   >
                     <Eye v-if="!showConfirmPassword" class="w-4 h-4" />
@@ -392,7 +572,7 @@ const fillDevOtp = () => {
                 </p>
               </div>
 
-              <!-- Nút xác nhận -->
+              <!-- Nút Lưu Mật khẩu -->
               <button
                 type="submit"
                 :disabled="isLoading"
@@ -400,7 +580,7 @@ const fillDevOtp = () => {
               >
                 <span v-if="isLoading">Đang lưu thay đổi...</span>
                 <template v-else>
-                  <span>Xác nhận đặt lại mật khẩu</span>
+                  <span>Lưu mật khẩu mới & Đăng nhập</span>
                   <ArrowRight class="w-4 h-4" />
                 </template>
               </button>
@@ -425,7 +605,7 @@ const fillDevOtp = () => {
 
     <!-- Mini Footer -->
     <footer class="relative z-20 py-4 text-center text-xs text-white/80">
-      TripPlanner © 2026 Wanderflow. Khám phá trọn vẹn từng chuyến đi.
+      TripPlanner © 2026 WanderFlow. Khám phá trọn vẹn từng chuyến đi.
     </footer>
   </div>
 </template>
