@@ -14,6 +14,7 @@ import { LoginDto } from './dto/login.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { MailService } from './mail.service';
 
 @Injectable()
 export class AuthService {
@@ -22,6 +23,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly mailService?: MailService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -207,8 +209,17 @@ export class AuthService {
     // In OTP ra console dev để test nhanh
     this.logger.log(`\n========================================\n[DEV OTP QUÊN MẬT KHẨU] Email: ${email} | MÃ OTP: [ ${otp} ] (Hạn 15 phút)\n========================================\n`);
 
+    // Gửi email thật nếu MailService có cấu hình SMTP
+    let isEmailSent = false;
+    if (this.mailService) {
+      isEmailSent = await this.mailService.sendOtpEmail(user.email, otp, user.full_name);
+    }
+
     return {
-      message: 'Mã xác thực OTP 6 số đã được gửi thành công.',
+      message: isEmailSent
+        ? `Mã xác thực OTP 6 số đã được gửi trực tiếp đến hộp thư ${email}.`
+        : 'Mã xác thực OTP 6 số đã được tạo thành công.',
+      isEmailSent,
       devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
     };
   }
