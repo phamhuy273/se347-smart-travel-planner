@@ -72,6 +72,51 @@ const handleLogin = async () => {
     isLoading.value = false;
   }
 };
+
+const finishGoogleAuth = async (credential: string, email?: string, full_name?: string) => {
+  const response: any = await apiClient.post('/auth/google', {
+    credential,
+    email,
+    full_name,
+    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+  });
+
+  const authData = response.data || response;
+  authStore.setAuth(authData.accessToken, authData.user);
+  router.push('/dashboard');
+};
+
+const handleGoogleLogin = async () => {
+  isLoading.value = true;
+  errorMessage.value = '';
+
+  try {
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+    if (googleClientId && (window as any).google?.accounts?.id) {
+      (window as any).google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: async (res: any) => {
+          if (res?.credential) {
+            await finishGoogleAuth(res.credential);
+          }
+        },
+      });
+      (window as any).google.accounts.id.prompt();
+      return;
+    }
+
+    // Dev Mock Google Sign-In
+    await finishGoogleAuth('mock:google_traveler', 'google.wanderer@gmail.com', 'Google Explorer');
+  } catch (err: any) {
+    errorMessage.value =
+      err?.response?.data?.message ||
+      err?.message ||
+      'Đăng nhập Google thất bại. Vui lòng thử lại!';
+  } finally {
+    isLoading.value = false;
+  }
+};
 </script>
 
 <template>
@@ -181,8 +226,9 @@ const handleLogin = async () => {
           <!-- Google Login Button -->
           <button
             type="button"
-            class="w-full py-2.5 px-4 rounded-full border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/80 transition text-xs font-semibold text-slate-700 flex items-center justify-center gap-2.5 shadow-2xs active:scale-[0.99]"
-            @click="errorMessage = 'Tính năng đăng nhập Google đang được tích hợp!'"
+            :disabled="isLoading"
+            class="w-full py-2.5 px-4 rounded-full border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/80 transition text-xs font-semibold text-slate-700 flex items-center justify-center gap-2.5 shadow-2xs active:scale-[0.99] cursor-pointer disabled:opacity-70"
+            @click="handleGoogleLogin"
           >
             <svg class="w-4 h-4" viewBox="0 0 24 24">
               <path
@@ -244,13 +290,12 @@ const handleLogin = async () => {
                 <label class="text-xs font-semibold text-slate-700">
                   Mật khẩu
                 </label>
-                <button
-                  type="button"
+                <router-link
+                  to="/forgot-password"
                   class="text-[11px] font-medium text-teal-600 hover:text-teal-700 hover:underline transition"
-                  @click="errorMessage = 'Vui lòng liên hệ Admin để đặt lại mật khẩu!'"
                 >
                   Quên mật khẩu?
-                </button>
+                </router-link>
               </div>
               <div class="relative rounded-xl">
                 <Lock class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
