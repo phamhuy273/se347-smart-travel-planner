@@ -274,7 +274,12 @@ const handleGetStarted = () => {
           <!-- Main Heading -->
           <h1 class="text-3xl sm:text-4xl xl:text-5xl font-extrabold text-slate-900 tracking-tight leading-tight mb-4">
             Lên kế hoạch cho<br />
-            chuyến đi <span class="text-teal-600 underline decoration-teal-400 decoration-4 underline-offset-6">đáng nhớ</span>
+            chuyến đi <span class="relative inline-block whitespace-nowrap">
+              <span class="font-handwriting font-bold text-[#0D9488] text-4xl sm:text-5xl xl:text-6xl px-1">đáng nhớ</span>
+              <svg class="absolute -bottom-1 sm:-bottom-2 left-0 w-full h-3 text-[#0D9488]" viewBox="0 0 100 12" preserveAspectRatio="none">
+                <path d="M 2 10 Q 50 6 98 2" stroke="currentColor" stroke-width="4" stroke-linecap="round" fill="none" />
+              </svg>
+            </span>
           </h1>
 
           <!-- Description -->
