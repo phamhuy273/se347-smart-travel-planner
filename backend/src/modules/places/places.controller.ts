@@ -72,4 +72,16 @@ export class PlacesController {
   async deletePlace(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.placesService.deletePlace(id);
   }
+
+  /**
+   * API Lấy toàn bộ lịch trình chuyến đi (cây dữ liệu các ngày + địa điểm đã sắp xếp + kho lưu tạm).
+   * Yêu cầu quyền: OWNER, EDITOR hoặc VIEWER của chuyến đi.
+   */
+  @Get('trips/:tripId/itinerary')
+  @UseGuards(TripRoleGuard)
+  @TripRoles(UserRole.OWNER, UserRole.EDITOR, UserRole.VIEWER)
+  async getTripItinerary(@Param('tripId', new ParseUUIDPipe()) tripId: string) {
+    return this.placesService.getTripItinerary(tripId);
+  }
 }
+

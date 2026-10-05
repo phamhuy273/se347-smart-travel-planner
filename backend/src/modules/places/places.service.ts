@@ -152,5 +152,61 @@ export class PlacesService {
       message: `Đã xóa địa điểm "${existingPlace.place_name}" thành công`,
     };
   }
+
+  /**
+   * Lấy cấu trúc cây toàn bộ lịch trình chuyến đi (các ngày, địa điểm đã sắp xếp, kho lưu tạm).
+   * Phục vụ cho giao diện Canvas đa cột và bản đồ Mapbox GL JS của Frontend.
+   */
+  async getTripItinerary(tripId: string) {
+    // 1. Kiểm tra sự tồn tại của chuyến đi
+    const trip = await this.prisma.trip.findUnique({
+      where: { id: tripId, is_deleted: false },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        destination: true,
+        start_date: true,
+        end_date: true,
+        cover_image_url: true,
+        visibility: true,
+        owner_id: true,
+      },
+    });
+
+    if (!trip) {
+      throw new NotFoundException(`Chuyến đi với id: ${tripId} không tồn tại`);
+    }
+
+    // 2. Query danh sách các ngày trong chuyến đi, kèm các địa điểm được sắp xếp theo order_index ASC
+    const days = await this.prisma.tripDay.findMany({
+      where: { trip_id: tripId },
+      orderBy: { day_number: 'asc' },
+      include: {
+        place_items: {
+          orderBy: { order_index: 'asc' },
+        },
+      },
+    });
+
+    // 3. Query danh sách các địa điểm trong Kho lưu tạm (trip_day_id = null)
+    const unassignedPlaces = await this.prisma.placeItem.findMany({
+      where: {
+        trip_id: tripId,
+        trip_day_id: null,
+      },
+      orderBy: { order_index: 'asc' },
+    });
+
+    const totalPlacesInDays = days.reduce((sum, day) => sum + day.place_items.length, 0);
+
+    return {
+      trip,
+      days,
+      unassigned_places: unassignedPlaces,
+      total_places: totalPlacesInDays + unassignedPlaces.length,
+    };
+  }
 }
+
 
