@@ -1,5 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PlaceCategory } from '@prisma/client';
+
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePlaceDto, UpdatePlaceDto } from './dto';
 
@@ -207,6 +213,64 @@ export class PlacesService {
       total_places: totalPlacesInDays + unassignedPlaces.length,
     };
   }
+
+  /**
+   * Thuật toán Fractional Indexing: Tính toán order_index mới khi kéo thả chèn vị trí.
+   *
+   * @param prevOrderIndex order_index của phần tử liền trước (null nếu chèn đầu)
+   * @param nextOrderIndex order_index của phần tử liền sau (null nếu chèn cuối)
+   * @returns { index: number, needsRebalance: boolean }
+   */
+  calculateFractionalIndex(
+    prevOrderIndex?: number | null,
+    nextOrderIndex?: number | null,
+  ): { index: number; needsRebalance: boolean } {
+    // Ngưỡng phát hiện khoảng cách số thực tiệm cận giới hạn float của DB
+    const REBALANCE_THRESHOLD = 1e-5;
+
+    // Trường hợp 1: Chèn vào giữa 2 phần tử A và B
+    if (
+      prevOrderIndex !== null &&
+      prevOrderIndex !== undefined &&
+      nextOrderIndex !== null &&
+      nextOrderIndex !== undefined
+    ) {
+      if (prevOrderIndex >= nextOrderIndex) {
+        throw new BadRequestException(
+          `Vị trí không hợp lệ: prev_order_index (${prevOrderIndex}) phải nhỏ hơn next_order_index (${nextOrderIndex})`,
+        );
+      }
+
+      const index = (prevOrderIndex + nextOrderIndex) / 2;
+      const diff = nextOrderIndex - prevOrderIndex;
+      const needsRebalance = diff < REBALANCE_THRESHOLD;
+
+      return { index, needsRebalance };
+    }
+
+    // Trường hợp 2: Chèn lên đầu danh sách (chỉ có nextOrderIndex)
+    if (nextOrderIndex !== null && nextOrderIndex !== undefined) {
+      const index = nextOrderIndex > 1000 ? nextOrderIndex - 1000 : nextOrderIndex / 2;
+      const needsRebalance = index < REBALANCE_THRESHOLD;
+
+      return { index, needsRebalance };
+    }
+
+    // Trường hợp 3: Chèn xuống cuối danh sách (chỉ có prevOrderIndex)
+    if (prevOrderIndex !== null && prevOrderIndex !== undefined) {
+      return {
+        index: prevOrderIndex + 1000.0,
+        needsRebalance: false,
+      };
+    }
+
+    // Trường hợp 4: Danh sách đang rỗng
+    return {
+      index: 1000.0,
+      needsRebalance: false,
+    };
+  }
 }
+
 
 
