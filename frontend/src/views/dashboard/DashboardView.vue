@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
-  MapPin,
+  Compass,
   Clock,
   CalendarDays,
   CheckCircle2,
@@ -17,7 +17,14 @@ import {
   Edit3,
   Save,
   Eye,
+  Send,
 } from 'lucide-vue-next';
+import phuQuocCover from '@/assets/trips/phu-quoc-cover.png';
+import mekongDeltaImage from '@/assets/trips/mekong-delta.jpg';
+import baliImage from '@/assets/trips/bali.jpg';
+import coastalEscapeImage from '@/assets/trips/coastal-escape.jpg';
+import haGiangImage from '@/assets/trips/ha-giang.jpg';
+import hoiAnImage from '@/assets/trips/hoi-an.jpg';
 
 // ─── Clock & Date ────────────────────────────────────────────────
 const now = ref(new Date());
@@ -98,7 +105,7 @@ const upcomingTrip = ref({
   dateRange: '29/10/2026 → 3/11/2026',
   daysLeft: 27,
   members: 4,
-  coverImage: 'https://images.unsplash.com/photo-1558005137-d9619a5c539f?w=600&h=300&fit=crop',
+  coverImage: phuQuocCover,
 });
 
 // ─── Mock Data: Checklist ────────────────────────────────────────
@@ -171,7 +178,7 @@ const featuredTrips = ref([
     duration: '3 ngày',
     rating: 4.8,
     saves: 105,
-    image: 'https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=300&h=200&fit=crop',
+    image: mekongDeltaImage,
   },
   {
     id: 2,
@@ -179,7 +186,7 @@ const featuredTrips = ref([
     duration: '5 ngày',
     rating: 4.7,
     saves: 298,
-    image: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=300&h=200&fit=crop',
+    image: baliImage,
   },
   {
     id: 3,
@@ -187,7 +194,7 @@ const featuredTrips = ref([
     duration: '4 ngày',
     rating: 4.6,
     saves: 185,
-    image: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300&h=200&fit=crop',
+    image: coastalEscapeImage,
   },
   {
     id: 4,
@@ -195,7 +202,7 @@ const featuredTrips = ref([
     duration: '4 ngày',
     rating: 4.9,
     saves: 142,
-    image: 'https://images.unsplash.com/photo-1570366583862-f91883984fde?w=300&h=200&fit=crop',
+    image: haGiangImage,
   },
   {
     id: 5,
@@ -203,7 +210,7 @@ const featuredTrips = ref([
     duration: '3 ngày',
     rating: 4.8,
     saves: 302,
-    image: 'https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=300&h=200&fit=crop',
+    image: hoiAnImage,
   },
 ]);
 
@@ -222,38 +229,40 @@ const scrollFeatured = (direction: 'left' | 'right') => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-5 pb-4">
+  <div class="flex flex-col gap-4 pb-4">
     <!-- ═══════════════════════════════════════════════════════════
          1. BANNER — Khám phá điểm đến mới
          ═══════════════════════════════════════════════════════════ -->
     <div
-      class="relative overflow-hidden rounded-2xl bg-gradient-to-r from-brand-orange to-orange-400 px-6 py-5 flex items-center justify-between"
+      class="relative -mr-5 min-h-[60px] overflow-hidden rounded-2xl bg-gradient-to-r from-[#159e9b] to-[#31c6c1] px-3 py-2.5 flex items-center justify-between shadow-sm"
     >
-      <div class="flex items-center gap-4 z-10">
-        <div class="w-11 h-11 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-          <MapPin class="w-5 h-5 text-white" />
+      <div class="flex items-center gap-2.5 z-10">
+        <div class="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center shadow-sm">
+          <Compass class="w-4 h-4 text-white" />
         </div>
         <div>
-          <h2 class="text-white font-bold text-base">Khám phá điểm đến mới</h2>
-          <p class="text-white/80 text-xs mt-0.5">Tìm cảm hứng cho chuyến đi tiếp theo của bạn</p>
+          <h2 class="text-white font-bold text-xs">Khám phá điểm đến mới</h2>
+          <p class="text-white/80 text-[10px] mt-0.5">Tìm cảm hứng cho chuyến đi tiếp theo của bạn</p>
         </div>
       </div>
       <button
-        class="z-10 px-4 py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-xs font-semibold rounded-full transition-all duration-200 border border-white/30"
+        class="z-10 px-3 py-1.5 bg-white hover:bg-teal-50 text-teal-700 text-[10px] font-bold rounded-full transition-all duration-200 shadow-sm"
       >
-        Khám phá ngay →
+        Khám phá ngay <span aria-hidden="true">→</span>
       </button>
-      <!-- Decorative circles -->
-      <div class="absolute -right-6 -top-6 w-28 h-28 bg-white/10 rounded-full"></div>
-      <div class="absolute -right-2 -bottom-8 w-20 h-20 bg-white/5 rounded-full"></div>
+      <div class="absolute right-1/4 -top-5 w-16 h-16 bg-white/10 rounded-full"></div>
+      <div class="absolute right-[28%] top-2 text-white/30 -rotate-12">
+        <Send class="w-5 h-5" />
+      </div>
+      <div class="absolute -right-5 -bottom-8 w-20 h-20 bg-white/10 rounded-full"></div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════
          2. MAIN CONTENT GRID — 2 columns
          ═══════════════════════════════════════════════════════════ -->
-    <div class="grid grid-cols-5 gap-5">
+    <div class="grid grid-cols-5 gap-4">
       <!-- ─── LEFT COLUMN (3/5) ─────────────────────────────── -->
-      <div class="col-span-3 flex flex-col gap-5">
+      <div class="col-span-3 flex flex-col gap-4">
         <!-- 2a. UPCOMING TRIP CARD -->
         <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
           <div class="relative h-40 overflow-hidden">
@@ -262,25 +271,28 @@ const scrollFeatured = (direction: 'left' | 'right') => {
               :alt="upcomingTrip.title"
               class="w-full h-full object-cover"
             />
+            <div class="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-900/10 to-transparent"></div>
             <!-- UPCOMING TRIP badge -->
             <span
-              class="absolute top-3 left-3 px-2.5 py-1 bg-emerald-500 text-white text-[10px] font-bold rounded-full tracking-wider uppercase"
+              class="absolute top-3 left-3 px-2 py-1 bg-orange-500 text-white text-[9px] font-bold rounded-full tracking-wider uppercase"
             >
               Upcoming Trip
             </span>
             <!-- Days left badge -->
             <div
-              class="absolute top-3 right-3 bg-white/90 backdrop-blur-sm rounded-xl px-3 py-1.5 text-center shadow-sm"
+              class="absolute top-2 right-3 bg-slate-800/80 backdrop-blur-sm rounded-lg px-2.5 py-1 text-center shadow-sm"
             >
-              <span class="text-brand-orange font-extrabold text-lg leading-none block">{{ upcomingTrip.daysLeft }}</span>
-              <span class="text-slate-500 text-[9px] font-medium">ngày nữa</span>
+              <span class="text-amber-300 font-extrabold text-base leading-none block">{{ upcomingTrip.daysLeft }}</span>
+              <span class="text-white/80 text-[8px] font-medium">ngày nữa</span>
+            </div>
+            <div class="absolute bottom-3 left-3 right-3">
+              <h3 class="font-bold text-white text-sm drop-shadow">{{ upcomingTrip.title }}</h3>
+              <p class="text-white/80 text-[10px] mt-0.5 drop-shadow">
+                {{ upcomingTrip.location }} · {{ upcomingTrip.duration }} · {{ upcomingTrip.dateRange }}
+              </p>
             </div>
           </div>
-          <div class="p-4">
-            <h3 class="font-bold text-slate-900 text-sm">{{ upcomingTrip.title }}</h3>
-            <p class="text-slate-400 text-xs mt-1">
-              {{ upcomingTrip.location }} · {{ upcomingTrip.duration }} · {{ upcomingTrip.dateRange }}
-            </p>
+          <div class="px-4 py-3">
             <div class="flex items-center justify-between mt-3">
               <div class="flex items-center gap-2">
                 <!-- Member avatars -->
@@ -390,7 +402,7 @@ const scrollFeatured = (direction: 'left' | 'right') => {
       </div>
 
       <!-- ─── RIGHT COLUMN (2/5) ────────────────────────────── -->
-      <div class="col-span-2 flex flex-col gap-5">
+      <div class="col-span-2 flex flex-col gap-4">
         <!-- 2d. CLOCK & CALENDAR -->
         <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
           <!-- Clock -->
@@ -522,7 +534,7 @@ const scrollFeatured = (direction: 'left' | 'right') => {
     <!-- ═══════════════════════════════════════════════════════════
          3. FEATURED ITINERARIES — Lịch trình nổi bật
          ═══════════════════════════════════════════════════════════ -->
-    <div>
+    <div class="rounded-2xl border border-slate-100 bg-white/95 shadow-sm p-4 sm:p-5">
       <div class="flex items-center justify-between mb-3">
         <div>
           <span class="text-[10px] font-bold text-brand-orange tracking-widest uppercase">Gợi ý cho bạn</span>
