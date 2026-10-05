@@ -2,7 +2,7 @@
 import { ref, reactive, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, ArrowLeft, CheckCircle2, AlertCircle, KeyRound, Sparkles, RefreshCw, ShieldCheck } from 'lucide-vue-next';
-import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
+import authBg from '@/assets/auth-bg.png';
 import apiClient from '@/services/api.client';
 
 const router = useRouter();
@@ -236,7 +236,7 @@ const handleResetPassword = async () => {
 <template>
   <div
     class="relative min-h-screen w-full flex flex-col justify-between overflow-x-hidden font-sans bg-cover bg-center bg-no-repeat select-none"
-    :style="{ backgroundImage: `url(${dashboardBg})` }"
+    :style="{ backgroundImage: `url(${authBg})` }"
   >
     <!-- Background Blur & Soft Overlay -->
     <div class="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"></div>

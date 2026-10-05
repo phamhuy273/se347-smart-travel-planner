@@ -14,7 +14,7 @@ import {
   LogOut,
   LayoutDashboard,
 } from 'lucide-vue-next';
-import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
+import landingBg from '@/assets/landing-bg.png';
 import { useAuthStore } from '@/stores/auth.store';
 
 const router = useRouter();
@@ -254,8 +254,8 @@ const handleGetStarted = () => {
 
     <!-- 1. HERO SECTION WITH SCENIC BACKGROUND -->
     <section
-      class="relative w-full bg-cover bg-center bg-no-repeat pt-24 sm:pt-28 pb-20 sm:pb-32 overflow-hidden"
-      :style="{ backgroundImage: `url(${dashboardBg})` }"
+      class="relative w-full bg-cover bg-center bg-no-repeat pt-24 sm:pt-28 pb-16 sm:pb-20 overflow-hidden"
+      :style="{ backgroundImage: `url(${landingBg})` }"
     >
       <!-- Subtle Overlay -->
       <div class="absolute inset-0 bg-sky-900/10 pointer-events-none"></div>
@@ -415,7 +415,7 @@ const handleGetStarted = () => {
     </section>
 
     <!-- 2. SECTION: KHÁM PHÁ THEO CẢM HỨNG (Chuẩn Figma 100%) -->
-    <section id="explore" class="max-w-7xl mx-auto px-4 sm:px-8 py-12 sm:py-16">
+    <section id="explore" class="max-w-7xl mx-auto px-4 sm:px-8 pt-2 sm:pt-4 pb-12 sm:pb-16 scroll-mt-20">
       <!-- Section Title & Link -->
       <div class="flex items-end justify-between mb-8">
         <div>
@@ -558,7 +558,7 @@ const handleGetStarted = () => {
     <section class="max-w-7xl mx-auto px-4 sm:px-8 py-10">
       <div
         class="relative w-full rounded-3xl overflow-hidden bg-cover bg-center bg-no-repeat p-8 sm:p-12 shadow-xl border border-slate-200"
-        :style="{ backgroundImage: `url(${dashboardBg})` }"
+        :style="{ backgroundImage: `url(${landingBg})` }"
       >
         <div class="absolute inset-0 bg-sky-950/20"></div>
 
