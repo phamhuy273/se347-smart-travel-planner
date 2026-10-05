@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PlaceCategory } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreatePlaceDto } from './dto';
+import { CreatePlaceDto, UpdatePlaceDto } from './dto';
 
 @Injectable()
 export class PlacesService {
@@ -74,5 +74,54 @@ export class PlacesService {
     );
 
     return createdPlace;
+  }
+
+  /**
+   * Lấy chi tiết thông tin một điểm dừng theo ID.
+   */
+  async getPlaceById(id: string) {
+    const place = await this.prisma.placeItem.findUnique({
+      where: { id },
+      include: {
+        trip_day: {
+          select: {
+            id: true,
+            day_number: true,
+            date: true,
+          },
+        },
+      },
+    });
+
+    if (!place) {
+      throw new NotFoundException(`Địa điểm với id: ${id} không tồn tại`);
+    }
+
+    return place;
+  }
+
+  /**
+   * Cập nhật thông tin chi tiết của một điểm dừng (giờ, thời lượng, ghi chú, danh mục...).
+   */
+  async updatePlace(id: string, dto: UpdatePlaceDto) {
+    // 1. Kiểm tra sự tồn tại của địa điểm
+    const existingPlace = await this.prisma.placeItem.findUnique({
+      where: { id },
+      select: { id: true, trip_id: true },
+    });
+
+    if (!existingPlace) {
+      throw new NotFoundException(`Địa điểm với id: ${id} không tồn tại`);
+    }
+
+    // 2. Cập nhật dữ liệu
+    const updatedPlace = await this.prisma.placeItem.update({
+      where: { id },
+      data: dto,
+    });
+
+    this.logger.log(`Đã cập nhật thông tin địa điểm: ${id}`);
+
+    return updatedPlace;
   }
 }
