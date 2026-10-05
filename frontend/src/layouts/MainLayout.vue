@@ -13,14 +13,31 @@ import {
   LogOut,
   ChevronDown,
 } from 'lucide-vue-next';
-import dashboardBg from '@/assets/dashboard-bg.png';
-import sidebarBg from '@/assets/sidebar-bg.png';
+import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
+import sidebarBg from '@/assets/backgrounds/sidebar-bg.png';
+import tripPlannerLogo from '@/assets/branding/tripplanner-logo.svg';
 
 const router = useRouter();
 const route = useRoute();
 
 const showUserMenu = ref(false);
 const searchQuery = ref('');
+const sidebarCollapsed = ref(false);
+const lastMainScrollTop = ref(0);
+
+const handleMainScroll = (event: Event) => {
+  const main = event.currentTarget as HTMLElement;
+  const nextScrollTop = main.scrollTop;
+  const scrollDelta = nextScrollTop - lastMainScrollTop.value;
+
+  if (nextScrollTop <= 8 || scrollDelta < -6) {
+    sidebarCollapsed.value = false;
+  } else if (scrollDelta > 6) {
+    sidebarCollapsed.value = true;
+  }
+
+  lastMainScrollTop.value = nextScrollTop;
+};
 
 // User profile state matching Figma
 const user = ref({
@@ -45,16 +62,14 @@ const handleLogout = () => {
 <template>
   <div class="flex flex-col h-screen w-screen overflow-hidden font-sans select-none">
     <!-- 1. TOPBAR (Chuẩn 100% Figma: Logo TripPlanner, Search Pill with Filter icon, Moon, Bell, Pham Huy) -->
-    <header class="h-16 bg-white border-b border-slate-200/80 px-6 flex items-center justify-between shadow-xs z-30 flex-shrink-0">
+    <header class="h-12 bg-white border-b border-slate-200/80 px-9 flex items-center justify-between shadow-sm z-30 flex-shrink-0">
       <!-- Brand Logo -->
       <div class="flex items-center gap-2 cursor-pointer" @click="router.push('/dashboard')">
-        <span class="text-2xl font-black tracking-tight text-[#0F172A] hover:text-brand-blue transition">
-          Trip<span class="text-brand-blue">Planner</span>
-        </span>
+        <img :src="tripPlannerLogo" alt="TripPlanner" class="h-[26px] w-auto transition hover:opacity-80" />
       </div>
 
       <!-- Center: Pill Search Bar with Sliders/Filter icon -->
-      <div class="relative w-full max-w-md mx-6">
+      <div class="relative w-full max-w-xs mx-6">
         <div class="relative flex items-center">
           <Search class="w-4 h-4 text-slate-400 absolute left-4 pointer-events-none" />
           <input
@@ -127,14 +142,16 @@ const handleLogout = () => {
 
     <!-- 2. BODY -->
     <div
-      class="flex-1 flex min-h-0 relative bg-cover bg-center overflow-hidden p-4 gap-4"
+      class="flex-1 flex min-h-0 relative bg-cover bg-center overflow-hidden px-0 py-4 gap-4"
       :style="{ backgroundImage: `url(${dashboardBg})` }"
     >
     
       <aside
-        class="w-56 flex-shrink-0 relative rounded-3xl shadow-2xl border border-white/40 flex flex-col justify-between p-4 text-white z-20 overflow-hidden bg-cover bg-center"
+        class="flex-shrink-0 relative rounded-2xl shadow-xl flex flex-col justify-between text-white z-20 overflow-hidden bg-cover bg-center transition-[width,flex-basis,opacity,transform,padding] duration-300 ease-in-out"
+        :class="sidebarCollapsed ? 'w-16 basis-16 p-2 opacity-100 translate-x-0 border border-white/40' : 'w-48 basis-48 p-3 opacity-100 translate-x-0 border border-white/40'"
         :style="{ backgroundImage: `url(${sidebarBg})` }"
       >
+        <div aria-hidden="true" class="absolute inset-0 bg-gradient-to-b from-sky-950/35 via-slate-900/25 to-slate-950/45"></div>
         <!-- Navigation Menu -->
         <div class="relative z-10 space-y-3 pt-2">
           <nav class="space-y-2">
@@ -142,8 +159,11 @@ const handleLogout = () => {
               v-for="item in menuItems"
               :key="item.path"
               :to="item.path"
+              :aria-label="item.name"
+              :title="sidebarCollapsed ? item.name : undefined"
               :class="[
-                'flex items-center gap-3 px-4 py-2.5 rounded-full text-xs font-bold transition-all duration-200',
+                'flex min-h-10 items-center rounded-full text-[13px] font-semibold transition-all duration-200',
+                sidebarCollapsed ? 'justify-center px-2' : 'gap-2 px-2',
                 route.path === item.path
                   ? 'bg-white text-slate-800 shadow-lg'
                   : 'text-white hover:bg-white/20 hover:text-white drop-shadow-sm',
@@ -153,7 +173,7 @@ const handleLogout = () => {
                 :is="item.icon"
                 :class="['w-4 h-4 flex-shrink-0', route.path === item.path ? 'text-emerald-600' : 'text-white']"
               />
-              <span class="truncate">{{ item.name }}</span>
+              <span v-if="!sidebarCollapsed" class="whitespace-nowrap">{{ item.name }}</span>
             </router-link>
           </nav>
         </div>
@@ -162,7 +182,8 @@ const handleLogout = () => {
 
    
       <main
-        class="flex-1 min-w-0 relative z-10 bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-white/60 overflow-y-auto p-6 flex flex-col"
+        class="flex-1 min-w-0 relative z-10 overflow-y-auto pr-5 flex flex-col"
+        @scroll="handleMainScroll"
       >
         <router-view />
       </main>
