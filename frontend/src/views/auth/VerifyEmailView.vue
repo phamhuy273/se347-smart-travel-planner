@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { CheckCircle2, AlertCircle, Loader2, ArrowRight, Mail, Home } from 'lucide-vue-next';
-import dashboardBg from '@/assets/dashboard-bg.png';
+import authBg from '@/assets/auth-bg.png';
 import apiClient from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 
@@ -80,7 +80,7 @@ onMounted(() => {
 <template>
   <div
     class="relative min-h-screen w-full flex flex-col justify-between overflow-x-hidden font-sans bg-cover bg-center bg-no-repeat select-none"
-    :style="{ backgroundImage: `url(${dashboardBg})` }"
+    :style="{ backgroundImage: `url(${authBg})` }"
   >
     <!-- Background overlay for gentle contrast -->
     <div class="absolute inset-0 bg-sky-900/15 pointer-events-none"></div>

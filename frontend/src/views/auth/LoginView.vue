@@ -2,7 +2,8 @@
 import { ref, reactive, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-vue-next';
-import dashboardBg from '@/assets/dashboard-bg.png';
+import authBg from '@/assets/auth-bg.png';
+import authPolaroid from '@/assets/auth-polaroid.png';
 import apiClient from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 
@@ -133,10 +134,9 @@ const handleGoogleLogin = async () => {
 <template>
   <div
     class="relative min-h-screen w-full flex flex-col justify-between overflow-x-hidden font-sans bg-cover bg-center bg-no-repeat select-none"
-    :style="{ backgroundImage: `url(${dashboardBg})` }"
+    :style="{ backgroundImage: `url(${authBg})` }"
   >
-    <!-- Background overlay for gentle contrast -->
-    <div class="absolute inset-0 bg-sky-900/10 pointer-events-none"></div>
+    <!-- Background overlay removed for crystal-clear Figma background -->
 
     <!-- 1. FLOATING HEADER (Chuẩn Figma) -->
     <header class="relative z-20 w-full px-4 sm:px-10 pt-5 sm:pt-7">
@@ -166,48 +166,26 @@ const handleGoogleLogin = async () => {
     <main class="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-8 flex items-center justify-between gap-8 lg:gap-16">
       
       <!-- LEFT SIDE: Tilted Polaroid Postcard & Slogan (Chuẩn Figma 100%) -->
-      <div class="hidden lg:flex flex-col items-start max-w-lg pl-4">
+      <div class="hidden lg:flex flex-col items-start max-w-xl pl-4">
         <!-- Handwriting Slogan -->
-        <h2 class="font-handwriting text-3xl xl:text-4xl font-bold text-teal-800 tracking-wide mb-6 -rotate-2 drop-shadow-xs">
-          Mỗi hành trình đáng nhớ<br />
-          đều bắt đầu từ một kế hoạch.
-        </h2>
+        <div class="mb-5 -rotate-2">
+          <h2 class="font-handwriting text-3xl xl:text-4xl font-bold text-teal-800 tracking-wide leading-tight drop-shadow-xs">
+            Mỗi hành trình đáng nhớ<br />
+            đều bắt đầu từ một kế hoạch.
+          </h2>
+          <!-- Curved underline matching Figma -->
+          <svg class="w-56 h-3 text-teal-600 mt-1" viewBox="0 0 200 12" fill="none">
+            <path d="M 2 8 Q 100 2 198 6" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" />
+          </svg>
+        </div>
 
-        <!-- Postcard Card with tape and stamp -->
-        <div class="relative group transition-transform duration-300 hover:rotate-0 -rotate-3 mt-2">
-          <!-- Scotch Tape effect at top-left -->
-          <div class="absolute -top-3.5 -left-4 w-16 h-7 bg-amber-100/80 border border-amber-200/60 -rotate-45 backdrop-blur-xs shadow-xs z-20 pointer-events-none rounded-xs"></div>
-
-          <!-- White Photo Frame -->
-          <div class="bg-white p-3.5 pb-12 rounded-2xl shadow-2xl border border-white/80 w-[380px] xl:w-[420px]">
-            <!-- Inner Photo -->
-            <div class="w-full h-64 xl:h-72 rounded-xl overflow-hidden shadow-inner relative">
-              <img
-                :src="dashboardBg"
-                alt="Tropical Bay"
-                class="w-full h-full object-cover object-bottom"
-              />
-            </div>
-          </div>
-
-          <!-- Postage Stamp Badge at bottom left -->
-          <div
-            class="absolute bottom-2 left-6 bg-white px-3 py-2 rounded-lg shadow-md border border-slate-200/80 flex items-center gap-2.5 z-20 -rotate-6"
-          >
-            <div class="w-7 h-7 rounded-full bg-teal-50 flex items-center justify-center text-teal-600">
-              <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-              </svg>
-            </div>
-            <div class="text-left">
-              <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-700 leading-tight">
-                Good Trips
-              </div>
-              <div class="text-[9px] font-medium text-slate-500 leading-tight">
-                Better Memories ♥
-              </div>
-            </div>
-          </div>
+        <!-- Polaroid Postcard Graphic directly from Figma (Mini picture o Register + login.png) -->
+        <div class="relative group transition-transform duration-300 hover:scale-[1.02] mt-2">
+          <img
+            :src="authPolaroid"
+            alt="Mỗi hành trình đáng nhớ - Good Trips Better Memories"
+            class="w-full max-w-[470px] xl:max-w-[530px] h-auto drop-shadow-2xl select-none pointer-events-none"
+          />
         </div>
       </div>
 
@@ -220,8 +198,8 @@ const handleGoogleLogin = async () => {
             <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">
               Chào mừng <span class="text-teal-600">trở lại!</span>
             </h1>
-            <p class="text-xs text-slate-500 mt-1.5">
-              Đăng nhập để tiếp tục lên kế hoạch cho những chuyến đi đáng nhớ
+            <p class="text-xs text-slate-500 mt-2 font-medium leading-relaxed">
+              Đăng nhập để tiếp tục lên kế hoạch cho những chuyến đi đáng nhớ.
             </p>
           </div>
 
