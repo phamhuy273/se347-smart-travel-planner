@@ -62,6 +62,9 @@ const hourAngle = computed(() => (now.value.getHours() % 12) * 30 + now.value.ge
 // ─── Calendar ────────────────────────────────────────────────────
 const currentMonth = ref(now.value.getMonth());
 const currentYear = ref(now.value.getFullYear());
+const selectedDate = ref(
+  new Date(now.value.getFullYear(), now.value.getMonth(), now.value.getDate()),
+);
 
 const monthName = computed(() => {
   const date = new Date(currentYear.value, currentMonth.value);
@@ -72,7 +75,17 @@ const capitalizedMonth = computed(() => {
   return monthName.value.charAt(0).toUpperCase() + monthName.value.slice(1);
 });
 
-const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const selectedDateLabel = computed(() => {
+  const label = selectedDate.value.toLocaleDateString('vi-VN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+});
+
+const weekDays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 
 const calendarDays = computed(() => {
   const firstDay = new Date(currentYear.value, currentMonth.value, 1);
@@ -94,6 +107,36 @@ const isToday = (day: number | null) => {
     day === today.getDate() &&
     currentMonth.value === today.getMonth() &&
     currentYear.value === today.getFullYear()
+  );
+};
+
+const isSelectedDay = (day: number | null) =>
+  Boolean(
+    day &&
+      day === selectedDate.value.getDate() &&
+      currentMonth.value === selectedDate.value.getMonth() &&
+      currentYear.value === selectedDate.value.getFullYear(),
+  );
+
+const selectCalendarDay = (day: number | null) => {
+  if (!day) return;
+  selectedDate.value = new Date(currentYear.value, currentMonth.value, day);
+};
+
+const changeMonth = (offset: number) => {
+  const nextMonth = new Date(currentYear.value, currentMonth.value + offset, 1);
+  const lastDayOfMonth = new Date(
+    nextMonth.getFullYear(),
+    nextMonth.getMonth() + 1,
+    0,
+  ).getDate();
+
+  currentMonth.value = nextMonth.getMonth();
+  currentYear.value = nextMonth.getFullYear();
+  selectedDate.value = new Date(
+    currentYear.value,
+    currentMonth.value,
+    Math.min(selectedDate.value.getDate(), lastDayOfMonth),
   );
 };
 
@@ -467,7 +510,27 @@ const scrollFeatured = (direction: 'left' | 'right') => {
 
           <!-- Calendar -->
           <div>
-            <h4 class="text-xs font-bold text-slate-700 mb-3">{{ capitalizedMonth }}</h4>
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="text-xs font-bold text-slate-700">{{ capitalizedMonth }}</h4>
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-label="Tháng trước"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+                  @click="changeMonth(-1)"
+                >
+                  <ChevronLeft class="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Tháng sau"
+                  class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+                  @click="changeMonth(1)"
+                >
+                  <ChevronRight class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
             <!-- Weekday headers -->
             <div class="grid grid-cols-7 gap-1 mb-1">
               <div
@@ -480,20 +543,29 @@ const scrollFeatured = (direction: 'left' | 'right') => {
             </div>
             <!-- Days -->
             <div class="grid grid-cols-7 gap-1">
-              <div
+              <button
                 v-for="(day, index) in calendarDays"
                 :key="'d' + index"
-                class="text-center py-1.5 text-xs rounded-lg transition-colors duration-150"
+                type="button"
+                :disabled="!day"
+                :aria-label="day ? `${day} ${capitalizedMonth}` : undefined"
+                class="text-center py-1.5 text-xs rounded-full transition-colors duration-150 disabled:cursor-default"
                 :class="[
-                  day ? 'cursor-pointer hover:bg-slate-100' : '',
-                  isToday(day)
-                    ? 'bg-brand-blue text-white font-bold rounded-full'
-                    : 'text-slate-600',
+                  day && !isSelectedDay(day) ? 'cursor-pointer hover:bg-slate-100' : '',
+                  isSelectedDay(day)
+                    ? 'bg-brand-blue text-white font-bold'
+                    : isToday(day)
+                      ? 'text-brand-blue font-bold ring-1 ring-brand-blue/40'
+                      : 'text-slate-600',
                 ]"
+                @click="selectCalendarDay(day)"
               >
                 {{ day || '' }}
-              </div>
+              </button>
             </div>
+            <p class="mt-3 text-[10px] text-slate-400">
+              Đã chọn: <span class="font-semibold text-slate-600">{{ selectedDateLabel }}</span>
+            </p>
           </div>
         </div>
 
