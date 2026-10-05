@@ -6,8 +6,7 @@ const routes: Array<RouteRecordRaw> = [
   // 1. Public Routes
   {
     path: '/',
-    name: 'Landing',
-    component: () => import('@/views/landing/LandingView.vue'),
+    redirect: '/dashboard',
   },
   {
     path: '/login',
@@ -43,6 +42,11 @@ const routes: Array<RouteRecordRaw> = [
     path: '/planner',
     component: PlannerLayout,
     children: [
+      {
+        path: '',
+        name: 'PlannerDefault',
+        component: () => import('@/views/planner/PlannerView.vue'),
+      },
       {
         path: ':id',
         name: 'Planner',
