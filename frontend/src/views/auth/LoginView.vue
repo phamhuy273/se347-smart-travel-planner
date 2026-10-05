@@ -2,7 +2,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-vue-next';
-import dashboardBg from '@/assets/dashboard-bg.png';
+import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
 import apiClient from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 

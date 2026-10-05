@@ -2,7 +2,7 @@
 import { ref, reactive, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, ArrowLeft, CheckCircle2, AlertCircle, KeyRound, Sparkles, RefreshCw, ShieldCheck } from 'lucide-vue-next';
-import dashboardBg from '@/assets/dashboard-bg.png';
+import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
 import apiClient from '@/services/api.client';
 
 const router = useRouter();

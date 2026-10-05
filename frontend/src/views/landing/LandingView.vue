@@ -14,7 +14,7 @@ import {
   LogOut,
   LayoutDashboard,
 } from 'lucide-vue-next';
-import dashboardBg from '@/assets/dashboard-bg.png';
+import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
 import { useAuthStore } from '@/stores/auth.store';
 
 const router = useRouter();
