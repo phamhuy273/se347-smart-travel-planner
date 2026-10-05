@@ -124,4 +124,33 @@ export class PlacesService {
 
     return updatedPlace;
   }
+
+  /**
+   * Xóa vĩnh viễn một địa điểm khỏi chuyến đi.
+   */
+  async deletePlace(id: string) {
+    // 1. Kiểm tra sự tồn tại của địa điểm
+    const existingPlace = await this.prisma.placeItem.findUnique({
+      where: { id },
+      select: { id: true, place_name: true, trip_id: true },
+    });
+
+    if (!existingPlace) {
+      throw new NotFoundException(`Địa điểm với id: ${id} không tồn tại`);
+    }
+
+    // 2. Thực hiện xóa bản ghi
+    await this.prisma.placeItem.delete({
+      where: { id },
+    });
+
+    this.logger.log(`Đã xóa địa điểm "${existingPlace.place_name}" (${id}) khỏi chuyến đi`);
+
+    return {
+      id,
+      deleted: true,
+      message: `Đã xóa địa điểm "${existingPlace.place_name}" thành công`,
+    };
+  }
 }
+

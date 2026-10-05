@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -58,5 +59,17 @@ export class PlacesController {
     @Body() dto: UpdatePlaceDto,
   ) {
     return this.placesService.updatePlace(id, dto);
+  }
+
+  /**
+   * API Xóa vĩnh viễn địa điểm khỏi lịch trình chuyến đi.
+   * Yêu cầu quyền: OWNER hoặc EDITOR của chuyến đi.
+   */
+  @Delete('places/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(TripRoleGuard)
+  @TripRoles(UserRole.OWNER, UserRole.EDITOR)
+  async deletePlace(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.placesService.deletePlace(id);
   }
 }
