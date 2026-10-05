@@ -4,6 +4,7 @@ import { usePlannerStore } from '@/stores/plannerStore';
 import PlaceSearchPanel from '@/components/planner/PlaceSearchPanel.vue';
 import DayColumn from '@/components/planner/DayColumn.vue';
 import PlannerMap from '@/components/map/PlannerMap.vue';
+import PlaceDetailDrawer from '@/components/planner/PlaceDetailDrawer.vue';
 import {
   CalendarDays,
   MapPin,
@@ -229,5 +230,12 @@ const stopDragRight = () => {
         <PlannerMap />
       </div>
     </div>
+
+    <!-- 4. Wanderlog Place Detail Flyout Drawer -->
+    <PlaceDetailDrawer
+      :place="plannerStore.selectedDetailPlace"
+      :is-open="plannerStore.isDetailDrawerOpen"
+      @close="plannerStore.closePlaceDetail"
+    />
   </div>
 </template>

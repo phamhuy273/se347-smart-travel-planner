@@ -18,6 +18,8 @@ import { useDebounce } from '@/composables/useDebounce';
 import type { SearchPlaceResult, PlaceCategory, PlaceItem } from '@/types/planner.type';
 import PlaceCard from './PlaceCard.vue';
 
+import { foursquareService } from '@/services/foursquare.service';
+
 const plannerStore = usePlannerStore();
 
 const searchQuery = ref('');
@@ -52,7 +54,7 @@ watch(debouncedSearch, async (val) => {
 
   isSearching.value = true;
   try {
-    const results = await placeService.searchPlaces(query, currentAbortController.signal);
+    const results = await foursquareService.searchPlaces(query, currentAbortController.signal);
     // Cache result
     searchCache.set(cacheKey, results);
     searchResults.value = results;
@@ -117,24 +119,40 @@ const onUnassignedDragChange = (evt: any) => {
       </div>
 
       <!-- Autocomplete Dropdown Results -->
-      <div v-if="searchResults.length > 0" class="mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 space-y-1 max-h-60 overflow-y-auto">
+      <div v-if="searchResults.length > 0" class="mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 space-y-1.5 max-h-72 overflow-y-auto">
         <div
           v-for="res in searchResults"
           :key="res.id"
-          class="p-2 rounded-xl hover:bg-slate-50 flex items-center justify-between cursor-pointer group transition"
+          class="p-2 rounded-xl hover:bg-slate-50 flex items-center justify-between cursor-pointer group transition gap-2"
           @click="handleAddSearchPlace(res)"
         >
-          <div class="flex items-center gap-2 min-w-0">
-            <div class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
-              <MapPin class="w-4 h-4" />
+          <div class="flex items-center gap-2.5 min-w-0">
+            <img
+              v-if="res.thumbnailUrl"
+              :src="res.thumbnailUrl"
+              :alt="res.placeName"
+              class="w-10 h-10 rounded-xl object-cover border border-slate-100 flex-shrink-0 shadow-2xs"
+            />
+            <div v-else class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+              <MapPin class="w-5 h-5" />
             </div>
+
             <div class="min-w-0">
-              <p class="text-xs font-bold text-slate-800 truncate group-hover:text-brand-blue">{{ res.placeName }}</p>
-              <p class="text-[10px] text-slate-400 truncate">{{ res.formattedAddress }}</p>
+              <div class="flex items-center gap-1.5">
+                <p class="text-xs font-bold text-slate-800 truncate group-hover:text-brand-blue">{{ res.placeName }}</p>
+                <span v-if="res.rating" class="px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200/60 font-black text-[9px] flex items-center gap-0.5 flex-shrink-0">
+                  ★ {{ res.rating }}
+                </span>
+              </div>
+              <p class="text-[10px] text-slate-400 truncate mt-0.5">{{ res.formattedAddress }}</p>
             </div>
           </div>
 
-          <button class="p-1 rounded-full bg-slate-100 group-hover:bg-brand-blue group-hover:text-white text-slate-600 transition flex-shrink-0">
+          <button
+            type="button"
+            class="p-1.5 rounded-full bg-slate-100 group-hover:bg-brand-blue group-hover:text-white text-slate-600 transition flex-shrink-0 shadow-2xs"
+            title="Thêm vào kho tạm"
+          >
             <Plus class="w-3.5 h-3.5" />
           </button>
         </div>

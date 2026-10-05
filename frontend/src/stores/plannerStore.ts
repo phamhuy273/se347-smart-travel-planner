@@ -306,6 +306,20 @@ export const usePlannerStore = defineStore('planner', () => {
     }
   };
 
+  // ─── Wanderlog Place Detail Flyout Drawer State ─────────────────────────────
+  const selectedDetailPlace = ref<PlaceItem | null>(null);
+  const isDetailDrawerOpen = ref(false);
+
+  const openPlaceDetail = (place: PlaceItem) => {
+    selectedDetailPlace.value = place;
+    isDetailDrawerOpen.value = true;
+    setActivePlace(place.id);
+  };
+
+  const closePlaceDetail = () => {
+    isDetailDrawerOpen.value = false;
+  };
+
   return {
     tripId,
     tripTitle,
@@ -314,7 +328,11 @@ export const usePlannerStore = defineStore('planner', () => {
     activePlaceId,
     selectedDayNumber,
     allMapPlaces,
+    selectedDetailPlace,
+    isDetailDrawerOpen,
     setActivePlace,
+    openPlaceDetail,
+    closePlaceDetail,
     addPlaceToDay,
     updatePlace,
     removePlace,

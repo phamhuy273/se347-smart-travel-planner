@@ -180,7 +180,7 @@ const reconcileMarkersAndRoutes = (shouldFitBounds = false) => {
 
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        plannerStore.setActivePlace(place.id);
+        plannerStore.openPlaceDetail(place);
       });
 
       const popup = new mapboxgl.Popup({ offset: 25, closeButton: false }).setHTML(`

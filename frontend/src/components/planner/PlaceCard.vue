@@ -115,6 +115,9 @@ const handleSaveEdit = () => {
   });
   showEditModal.value = false;
 };
+const handleCardClick = () => {
+  plannerStore.openPlaceDetail(props.place);
+};
 </script>
 
 <template>
@@ -126,7 +129,7 @@ const handleSaveEdit = () => {
         : 'border-slate-200/80 hover:border-slate-300',
     ]"
     @mouseenter="handleHover"
-    @click="handleHover"
+    @click="handleCardClick"
   >
     <!-- Top Row: Category Badge, Order Number & Actions -->
     <div class="flex items-center justify-between gap-1.5 pb-2 mb-2 border-b border-slate-100">

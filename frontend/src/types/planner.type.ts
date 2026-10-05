@@ -21,6 +21,17 @@ export interface PlaceItem {
   durationMinutes?: number;
   notes?: string;
   orderIndex: number;
+  // Wanderlog & Foursquare Rich Details
+  rating?: number;
+  reviewCount?: number;
+  openNow?: boolean;
+  hoursDescription?: string;
+  description?: string;
+  photos?: string[];
+  tips?: string[];
+  phoneNumber?: string;
+  website?: string;
+  fsqId?: string;
 }
 
 export interface TripDay {
@@ -39,6 +50,9 @@ export interface SearchPlaceResult {
   longitude: number;
   thumbnailUrl?: string;
   category: PlaceCategory;
+  rating?: number;
+  description?: string;
+  fsqId?: string;
 }
 
 export interface ReorderPlacePayload {
@@ -46,4 +60,3 @@ export interface ReorderPlacePayload {
   prev_order_index: number | null;
   next_order_index: number | null;
 }
-
