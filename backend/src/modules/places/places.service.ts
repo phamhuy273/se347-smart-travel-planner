@@ -7,7 +7,8 @@ import {
 import { PlaceCategory } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreatePlaceDto, UpdatePlaceDto } from './dto';
+import { CreatePlaceDto, UpdatePlaceDto, ReorderPlaceDto } from './dto';
+
 
 @Injectable()
 export class PlacesService {
@@ -270,7 +271,105 @@ export class PlacesService {
       needsRebalance: false,
     };
   }
+
+  /**
+   * Kéo thả địa điểm: đổi thứ tự trong cùng ngày, chuyển ngày hoặc đưa về kho lưu tạm.
+   * Áp dụng thuật toán Fractional Indexing + Interactive Transaction + Auto Re-balancing.
+   */
+  async reorderPlace(id: string, dto: ReorderPlaceDto) {
+    // 1. Kiểm tra sự tồn tại của địa điểm cần kéo thả
+    const place = await this.prisma.placeItem.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        trip_id: true,
+        trip_day_id: true,
+        place_name: true,
+      },
+    });
+
+    if (!place) {
+      throw new NotFoundException(`Địa điểm với id: ${id} không tồn tại`);
+    }
+
+    // 2. Xác định ngày đích (target_day_id)
+    let finalTargetDayId: string | null = place.trip_day_id;
+
+    if (dto.target_day_id !== undefined) {
+      if (dto.target_day_id === null) {
+        // Kéo về Kho lưu tạm (Unassigned Pool)
+        finalTargetDayId = null;
+      } else {
+        // Kéo vào một ngày cụ thể -> Kiểm tra ngày có thuộc chuyến đi này không
+        const targetDay = await this.prisma.tripDay.findFirst({
+          where: { id: dto.target_day_id, trip_id: place.trip_id },
+          select: { id: true },
+        });
+
+        if (!targetDay) {
+          throw new NotFoundException(
+            `Ngày đích (id: ${dto.target_day_id}) không thuộc về chuyến đi này`,
+          );
+        }
+
+        finalTargetDayId = dto.target_day_id;
+      }
+    }
+
+    // 3. Tính toán order_index mới bằng thuật toán Fractional Indexing
+    const { index: calculatedOrderIndex, needsRebalance } =
+      this.calculateFractionalIndex(dto.prev_order_index, dto.next_order_index);
+
+    // 4. Thực thi trong Prisma Interactive Transaction để chống Race Condition
+    return this.prisma.$transaction(async (tx) => {
+      // 4.1. Thực hiện lệnh UPDATE duy nhất cho địa điểm được kéo thả
+      const updatedPlace = await tx.placeItem.update({
+        where: { id },
+        data: {
+          trip_day_id: finalTargetDayId,
+          order_index: calculatedOrderIndex,
+        },
+      });
+
+      // 4.2. Task 5.3: Cơ chế Tự động Tái Cân Bằng (Auto Re-balancing)
+      if (needsRebalance) {
+        this.logger.warn(
+          `Khoảng cách order_index quá nhỏ (< 1e-5). Đang tự động tái cân bằng cho ngày: ${finalTargetDayId ?? 'Kho lưu tạm'}...`,
+        );
+
+        // Lấy tất cả các địa điểm trong cùng cột ngày đó (đã bao gồm phần tử vừa update)
+        const allItemsInDay = await tx.placeItem.findMany({
+          where: {
+            trip_id: place.trip_id,
+            trip_day_id: finalTargetDayId,
+          },
+          orderBy: { order_index: 'asc' },
+          select: { id: true },
+        });
+
+        // Phân bổ lại khoảng cách đều đặn 1000.0, 2000.0, 3000.0...
+        for (let i = 0; i < allItemsInDay.length; i++) {
+          const spacedIndex = (i + 1) * 1000.0;
+          await tx.placeItem.update({
+            where: { id: allItemsInDay[i].id },
+            data: { order_index: spacedIndex },
+          });
+        }
+
+        this.logger.log(
+          `Đã hoàn tất tái cân bằng cho ${allItemsInDay.length} địa điểm trong ngày ${finalTargetDayId ?? 'Kho lưu tạm'}`,
+        );
+      }
+
+      this.logger.log(
+        `Kéo thả thành công: "${place.place_name}" chuyển sang ngày ${finalTargetDayId ?? 'Kho lưu tạm'} với order_index mới: ${calculatedOrderIndex}`,
+      );
+
+      return updatedPlace;
+    });
+  }
 }
+
 
 
 

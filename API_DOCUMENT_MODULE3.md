@@ -249,7 +249,44 @@ Dùng khi người dùng mở Modal chỉnh sửa giờ bắt đầu, thời lư
 
 ---
 
+### 3.6. Kéo Thả Đổi Thứ Tự & Chuyển Ngày (Reorder / Move Place)
+Endpoint phục vụ cho thư viện `vuedraggable` trên Vue 3. Khi người dùng thả chuột (sự kiện `@end` hoặc `change`), Frontend gửi ID ngày đích và `order_index` của 2 phần tử liền trước/sau.
+
+* **Method:** `PATCH`
+* **URL:** `/places/:id/reorder`
+* **Params:** `id` (UUID của địa điểm đang được kéo thả)
+* **Request Body:**
+```json
+{
+  "target_day_id": "d2a85f64-5717-4562-b3fc-2c963f66af02", // ID ngày đích (nếu chuyển ngày), null nếu kéo vào Kho lưu tạm, hoặc bỏ trống nếu giữ nguyên ngày
+  "prev_order_index": 1000.0,                              // order_index của item đứng trước (null nếu chèn lên đầu)
+  "next_order_index": 2000.0                               // order_index của item đứng sau (null nếu chèn xuống cuối)
+}
+```
+* **Response Thành công (`200 OK`):**
+```json
+{
+  "statusCode": 200,
+  "message": "Success",
+  "data": {
+    "id": "p1a85f64-5717-4562-b3fc-2c963f66af11",
+    "trip_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "trip_day_id": "d2a85f64-5717-4562-b3fc-2c963f66af02",
+    "place_name": "Quảng trường Lâm Viên",
+    "order_index": 1500.0,
+    "updated_at": "2026-10-05T10:25:00.000Z"
+  }
+}
+```
+
+> **Lưu ý kỹ thuật cho Frontend:**
+> * Backend sử dụng thuật toán **Fractional Indexing** kết hợp **Prisma Interactive Transaction**, chỉ thực thi đúng **1 câu lệnh `UPDATE`**, đảm bảo phản hồi tức thì cho cơ chế **Optimistic UI**.
+> * Nếu khoảng cách giữa 2 index $< 10^{-5}$, Backend sẽ tự động chạy cơ chế **Auto Re-balancing** để dàn đều lại các index (1000, 2000, 3000...) mà Frontend không cần làm thêm thao tác nào.
+
+---
+
 ## 💡 4. Gợi Ý Tích Hợp Frontend (Vue 3 + Pinia)
+
 
 ### 4.1. Mã Màu Danh Mục Thống Nhất (Figma Design Token)
 Frontend nên bind màu sắc badge và marker theo danh mục (`category`) như sau:

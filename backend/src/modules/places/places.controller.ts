@@ -13,7 +13,8 @@ import {
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PlacesService } from './places.service';
-import { CreatePlaceDto, UpdatePlaceDto } from './dto';
+import { CreatePlaceDto, UpdatePlaceDto, ReorderPlaceDto } from './dto';
+
 import { TripRoleGuard } from './guards/trip-role.guard';
 import { TripRoles } from './decorators/trip-roles.decorator';
 
@@ -83,5 +84,21 @@ export class PlacesController {
   async getTripItinerary(@Param('tripId', new ParseUUIDPipe()) tripId: string) {
     return this.placesService.getTripItinerary(tripId);
   }
+
+  /**
+   * API Kéo thả đổi vị trí hoặc chuyển ngày địa điểm (Fractional Indexing).
+   * Yêu cầu quyền: OWNER hoặc EDITOR của chuyến đi.
+   */
+  @Patch('places/:id/reorder')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(TripRoleGuard)
+  @TripRoles(UserRole.OWNER, UserRole.EDITOR)
+  async reorderPlace(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: ReorderPlaceDto,
+  ) {
+    return this.placesService.reorderPlace(id, dto);
+  }
 }
+
 
