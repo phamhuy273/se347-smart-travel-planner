@@ -12,8 +12,8 @@ import {
   ChevronDown,
   LogOut,
 } from 'lucide-vue-next';
-import dashboardBg from '@/assets/dashboard-bg.png';
-import sidebarBg from '@/assets/sidebar-bg.png';
+import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
+import sidebarBg from '@/assets/backgrounds/sidebar-bg.png';
 
 const router = useRouter();
 
