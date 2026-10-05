@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { usePlannerStore } from '@/stores/plannerStore';
-import { Layers, Maximize2, MapPin } from 'lucide-vue-next';
+import { Maximize2, Key, ExternalLink, Check, AlertCircle } from 'lucide-vue-next';
 
 interface MarkerRecord {
   marker: mapboxgl.Marker;
@@ -18,60 +18,81 @@ const markersMap = new Map<string, MarkerRecord>();
 let resizeObserver: ResizeObserver | null = null;
 let isInitialFitDone = false;
 
-// Fallback high-definition Map Tile style (Free CartoDB Voyager style if Mapbox token is absent)
-const freeCartoStyle: mapboxgl.Style = {
-  version: 8,
-  sources: {
-    'carto-tiles': {
-      type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-        'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-        'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-      ],
-      tileSize: 256,
-      attribution: '&copy; CARTO &copy; OpenStreetMap',
-    },
-  },
-  layers: [
-    {
-      id: 'carto-tiles-layer',
-      type: 'raster',
-      source: 'carto-tiles',
-      minzoom: 0,
-      maxzoom: 22,
-    },
-  ],
-};
+// Token state & Live preview input
+const envToken = import.meta.env.VITE_MAPBOX_TOKEN || '';
+const isDummyToken = !envToken || envToken.includes('wanderflow_dev_token') || envToken.includes('dev-user');
+const currentToken = ref(isDummyToken ? '' : envToken);
+const showTokenBanner = ref(isDummyToken);
+const inputToken = ref('');
 
-const mapboxToken = import.meta.env.VITE_MAPBOX_TOKEN || '';
-
-onMounted(() => {
+const initMap = (tokenToUse: string) => {
   if (!mapContainer.value) return;
 
-  const hasValidToken = mapboxToken && mapboxToken.startsWith('pk.');
-  if (hasValidToken) {
-    mapboxgl.accessToken = mapboxToken;
+  // Clean up existing map instance if reloading
+  if (map) {
+    markersMap.forEach((rec) => rec.marker.remove());
+    markersMap.clear();
+    map.remove();
+    map = null;
   }
 
-  map = new mapboxgl.Map({
-    container: mapContainer.value,
-    style: hasValidToken ? 'mapbox://styles/mapbox/streets-v12' : freeCartoStyle,
-    center: [108.22, 16.06], // Center on Da Nang
-    zoom: 11.5,
-  });
+  if (tokenToUse && tokenToUse.startsWith('pk.')) {
+    mapboxgl.accessToken = tokenToUse;
+    showTokenBanner.value = false;
+  } else {
+    showTokenBanner.value = true;
+    return;
+  }
 
-  map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
+  try {
+    map = new mapboxgl.Map({
+      container: mapContainer.value,
+      style: 'mapbox://styles/mapbox/streets-v12',
+      center: [108.22, 16.06], // Center on Da Nang
+      zoom: 11.5,
+    });
 
-  map.on('load', () => {
-    reconcileMarkersAndRoutes(true); // First load fitBounds
-  });
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
 
-  // Watch for container resize (when panels toggle or user drags resize handle)
-  resizeObserver = new ResizeObserver(() => {
-    map?.resize();
-  });
-  resizeObserver.observe(mapContainer.value);
+    map.on('load', () => {
+      showTokenBanner.value = false;
+      reconcileMarkersAndRoutes(true);
+    });
+
+    map.on('error', (e: any) => {
+      // Catch 401 unauthorized or invalid token error
+      if (e?.error?.status === 401 || e?.status === 401 || (typeof e?.error?.message === 'string' && e.error.message.includes('token'))) {
+        showTokenBanner.value = true;
+      }
+    });
+  } catch {
+    showTokenBanner.value = true;
+  }
+};
+
+const applyLiveToken = () => {
+  const token = inputToken.value.trim();
+  if (!token.startsWith('pk.')) {
+    alert('Token Mapbox phải bắt đầu bằng "pk."');
+    return;
+  }
+  currentToken.value = token;
+  initMap(token);
+};
+
+onMounted(() => {
+  if (currentToken.value && !isDummyToken) {
+    initMap(currentToken.value);
+  } else {
+    showTokenBanner.value = true;
+  }
+
+  if (mapContainer.value) {
+    resizeObserver = new ResizeObserver(() => {
+      map?.resize();
+    });
+    resizeObserver.observe(mapContainer.value);
+  }
 });
 
 onUnmounted(() => {
@@ -79,7 +100,6 @@ onUnmounted(() => {
     resizeObserver.unobserve(mapContainer.value);
     resizeObserver.disconnect();
   }
-  // Clean up markers
   markersMap.forEach((rec) => rec.marker.remove());
   markersMap.clear();
   if (map) {
@@ -95,7 +115,7 @@ const reconcileMarkersAndRoutes = (shouldFitBounds = false) => {
   const places = plannerStore.allMapPlaces;
   const currentPlaceIds = new Set(places.map((p) => p.id));
 
-  // 1. Remove obsolete markers (places deleted from store)
+  // 1. Remove obsolete markers
   for (const [id, rec] of markersMap.entries()) {
     if (!currentPlaceIds.has(id)) {
       rec.marker.remove();
@@ -111,7 +131,6 @@ const reconcileMarkersAndRoutes = (shouldFitBounds = false) => {
     const lngLat: [number, number] = [place.longitude, place.latitude];
     bounds.extend(lngLat);
 
-    // Group coordinates for route lines
     if (place.dayNumber) {
       if (!dayCoordinates[place.dayNumber]) {
         dayCoordinates[place.dayNumber] = {
@@ -126,19 +145,16 @@ const reconcileMarkersAndRoutes = (shouldFitBounds = false) => {
     const existing = markersMap.get(place.id);
 
     if (existing) {
-      // Update existing marker position & badge without destroying DOM
       if (existing.lngLat[0] !== lngLat[0] || existing.lngLat[1] !== lngLat[1]) {
         existing.marker.setLngLat(lngLat);
         existing.lngLat = lngLat;
       }
-      // Update badge style
       existing.badgeEl.style.backgroundColor = place.dayColor || '#3B82F6';
       existing.badgeEl.style.width = isSelected ? '34px' : '26px';
       existing.badgeEl.style.height = isSelected ? '34px' : '26px';
       existing.badgeEl.style.fontSize = isSelected ? '12px' : '10px';
       existing.badgeEl.textContent = `${index + 1}`;
     } else {
-      // Create new marker DOM
       const el = document.createElement('div');
       el.className = 'custom-map-marker select-none';
 
@@ -183,21 +199,19 @@ const reconcileMarkersAndRoutes = (shouldFitBounds = false) => {
     }
   });
 
-  // 3. Update GeoJSON Route Polylines (Smooth lines connecting daily itinerary stops)
+  // 3. Update GeoJSON Route Polylines
   updateRouteLayers(dayCoordinates);
 
-  // 4. Fit bounds only on initial load or explicit request (prevents camera jumps)
+  // 4. Fit bounds on initial load
   if (shouldFitBounds && places.length > 0 && !bounds.isEmpty()) {
     map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 });
     isInitialFitDone = true;
   }
 };
 
-// ─── GeoJSON Route Polylines by Day ──────────────────────────────────────────
 const updateRouteLayers = (dayCoordinates: Record<number, { coords: [number, number][]; color: string }>) => {
   if (!map) return;
 
-  // Max 10 days supported for route overlays
   for (let dayNum = 1; dayNum <= 10; dayNum++) {
     const sourceId = `route-source-day-${dayNum}`;
     const layerId = `route-layer-day-${dayNum}`;
@@ -232,7 +246,7 @@ const updateRouteLayers = (dayCoordinates: Record<number, { coords: [number, num
         paint: {
           'line-color': dayData.color,
           'line-width': 3.5,
-          'line-opacity': 0.8,
+          'line-opacity': 0.85,
           'line-dasharray': [2, 1.5],
         },
       });
@@ -240,7 +254,6 @@ const updateRouteLayers = (dayCoordinates: Record<number, { coords: [number, num
   }
 };
 
-// Explicit Zoom to Fit all markers
 const fitAllMarkers = () => {
   if (!map) return;
   const places = plannerStore.allMapPlaces;
@@ -250,7 +263,6 @@ const fitAllMarkers = () => {
   map.fitBounds(bounds, { padding: 60, maxZoom: 14.5, duration: 800 });
 };
 
-// Watch active place selection -> smoothly fly to marker
 watch(
   () => plannerStore.activePlaceId,
   (newId) => {
@@ -266,7 +278,6 @@ watch(
   }
 );
 
-// Watch places changes -> reconcile markers without jumping camera
 watch(
   () => plannerStore.allMapPlaces,
   () => {
@@ -283,12 +294,13 @@ watch(
 
     <!-- Top Overlay Badge -->
     <div class="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-md border border-white/60 flex items-center gap-2">
-      <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+      <div :class="['w-2.5 h-2.5 rounded-full', showTokenBanner ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse']"></div>
       <span class="text-xs font-bold text-slate-800">Mapbox GL JS Engine</span>
     </div>
 
     <!-- Floating Fit Bounds Button -->
     <button
+      v-if="!showTokenBanner"
       class="absolute top-4 right-4 z-10 bg-white/90 hover:bg-white hover:text-brand-blue backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-md border border-slate-200/80 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition"
       title="Căn chỉnh toàn cảnh lịch trình"
       @click="fitAllMarkers"
@@ -296,6 +308,57 @@ watch(
       <Maximize2 class="w-3.5 h-3.5 text-slate-500" />
       <span>Toàn cảnh</span>
     </button>
+
+    <!-- Mapbox Token Setup Banner (Overlay when token is missing/invalid) -->
+    <div
+      v-if="showTokenBanner"
+      class="absolute inset-0 z-20 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-6"
+    >
+      <div class="bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 max-w-md w-full text-center animate-in fade-in zoom-in-95 duration-200">
+        <div class="w-12 h-12 rounded-2xl bg-blue-50 text-brand-blue flex items-center justify-center mx-auto mb-3.5 shadow-xs">
+          <Key class="w-6 h-6" />
+        </div>
+
+        <h3 class="text-sm font-black text-slate-900 mb-1.5">
+          Kết nối Mapbox Access Token
+        </h3>
+        <p class="text-xs text-slate-500 leading-relaxed mb-4">
+          Bản đồ tương tác và lộ trình di chuyển cần có Public Access Token từ Mapbox (hoàn toàn miễn phí).
+        </p>
+
+        <!-- Direct Live Paste Input -->
+        <div class="space-y-2 mb-4 text-left">
+          <label class="block text-[11px] font-bold text-slate-700">Dán Token của bạn vào đây để xem ngay:</label>
+          <div class="flex gap-2">
+            <input
+              v-model="inputToken"
+              type="text"
+              placeholder="pk.eyJ1..."
+              class="flex-1 bg-slate-50 border border-slate-200 text-xs rounded-xl px-3 py-2 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/30 font-mono"
+            />
+            <button
+              type="button"
+              class="px-4 py-2 rounded-xl text-xs font-bold bg-brand-blue hover:bg-blue-600 text-white flex items-center gap-1 shadow-sm transition"
+              @click="applyLiveToken"
+            >
+              <Check class="w-3.5 h-3.5" />
+              <span>Áp dụng</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="bg-slate-50 rounded-2xl p-3 border border-slate-200/80 text-left text-[11px] text-slate-600 space-y-1.5">
+          <p class="font-bold text-slate-800 flex items-center gap-1">
+            <AlertCircle class="w-3.5 h-3.5 text-blue-600" />
+            Cách lưu vĩnh viễn vào dự án:
+          </p>
+          <ol class="list-decimal list-inside space-y-1 text-slate-500 pl-1">
+            <li>Lấy token miễn phí tại <a href="https://account.mapbox.com" target="_blank" class="text-brand-blue font-bold hover:underline inline-flex items-center gap-0.5">account.mapbox.com <ExternalLink class="w-2.5 h-2.5" /></a></li>
+            <li>Dán vào file <code class="bg-slate-200 px-1 py-0.5 rounded text-[10px] text-slate-800">.env</code> dòng: <code class="text-blue-700">VITE_MAPBOX_TOKEN=pk.xxx</code></li>
+          </ol>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
