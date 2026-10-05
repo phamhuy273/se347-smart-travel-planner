@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { UploadModule } from './common/upload/upload.module';
+import { PlacesModule } from './modules/places/places.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { UploadModule } from './common/upload/upload.module';
     }),
     PrismaModule,
     UploadModule,
+    PlacesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
