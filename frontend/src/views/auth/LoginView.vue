@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-vue-next';
 import authBg from '@/assets/auth-bg.png';
@@ -15,15 +15,6 @@ const showPassword = ref(false);
 const isLoading = ref(false);
 const errorMessage = ref('');
 const successMessage = ref('');
-
-onMounted(() => {
-  if (route.query.verified === 'true') {
-    successMessage.value = 'Kích hoạt tài khoản thành công! Vui lòng đăng nhập để bắt đầu.';
-  }
-  if (route.query.email) {
-    form.email = String(route.query.email);
-  }
-});
 
 const form = reactive({
   email: '',
@@ -69,11 +60,8 @@ const handleLogin = async () => {
       password: form.password,
     });
 
-    // Backend bọc trong TransformInterceptor: response = { statusCode, message, data: { user, accessToken } }
     const authData = response.data || response;
     authStore.setAuth(authData.accessToken, authData.user);
-
-    // Chuyển hướng tới trang Dashboard
     router.push('/dashboard');
   } catch (err: any) {
     errorMessage.value =
@@ -85,48 +73,87 @@ const handleLogin = async () => {
   }
 };
 
+const googleClientId = ref(import.meta.env.VITE_GOOGLE_CLIENT_ID || '');
+const hasGoogleClientId = computed(() => !!googleClientId.value && !googleClientId.value.includes('your_google_client_id'));
+const isGoogleLoaded = ref(false);
+
 const finishGoogleAuth = async (credential: string, email?: string, full_name?: string) => {
-  const response: any = await apiClient.post('/auth/google', {
-    credential,
-    email,
-    full_name,
-    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-  });
-
-  const authData = response.data || response;
-  authStore.setAuth(authData.accessToken, authData.user);
-  router.push('/dashboard');
-};
-
-const handleGoogleLogin = async () => {
   isLoading.value = true;
   errorMessage.value = '';
-
   try {
-    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    const response: any = await apiClient.post('/auth/google', {
+      credential,
+      email,
+      full_name,
+    });
 
-    if (googleClientId && (window as any).google?.accounts?.id) {
+    const authData = response.data || response;
+    authStore.setAuth(authData.accessToken, authData.user);
+    router.push('/dashboard');
+  } catch (err: any) {
+    errorMessage.value =
+      err?.response?.data?.message ||
+      err?.message ||
+      'Xác thực Google không thành công. Vui lòng thử lại!';
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const initGoogleSignIn = () => {
+  if (!googleClientId.value || typeof window === 'undefined') return;
+
+  let retries = 0;
+  const tryInit = () => {
+    if ((window as any).google?.accounts?.id) {
       (window as any).google.accounts.id.initialize({
-        client_id: googleClientId,
+        client_id: googleClientId.value,
         callback: async (res: any) => {
           if (res?.credential) {
             await finishGoogleAuth(res.credential);
           }
         },
       });
-      (window as any).google.accounts.id.prompt();
-      return;
-    }
 
-    // Dev Mock Google Sign-In
-    await finishGoogleAuth('mock:google_traveler', 'google.wanderer@gmail.com', 'Google Explorer');
-  } catch (err: any) {
+      const container = document.getElementById('googleBtnContainer');
+      if (container) {
+        (window as any).google.accounts.id.renderButton(container, {
+          theme: 'outline',
+          size: 'large',
+          width: 360,
+          text: 'continue_with',
+          shape: 'pill',
+          locale: 'vi',
+        });
+        isGoogleLoaded.value = true;
+      }
+    } else if (retries < 20) {
+      retries++;
+      setTimeout(tryInit, 200);
+    }
+  };
+  tryInit();
+};
+
+onMounted(() => {
+  if (route.query.verified === 'true') {
+    successMessage.value = 'Kích hoạt tài khoản thành công! Vui lòng đăng nhập để bắt đầu.';
+  }
+  if (route.query.email) {
+    form.email = String(route.query.email);
+  }
+  initGoogleSignIn();
+});
+
+const handleGoogleLogin = async () => {
+  if (!googleClientId.value) {
     errorMessage.value =
-      err?.response?.data?.message ||
-      err?.message ||
-      'Đăng nhập Google thất bại. Vui lòng thử lại!';
-  } finally {
-    isLoading.value = false;
+      'Hệ thống chưa có Google OAuth Client ID! Vui lòng thêm VITE_GOOGLE_CLIENT_ID vào file frontend/.env để kích hoạt đăng nhập tài khoản Google thật.';
+    return;
+  }
+
+  if ((window as any).google?.accounts?.id) {
+    (window as any).google.accounts.id.prompt();
   }
 };
 </script>
@@ -222,7 +249,9 @@ const handleGoogleLogin = async () => {
           </div>
 
           <!-- Google Login Button -->
+          <div id="googleBtnContainer" class="w-full flex justify-center overflow-hidden"></div>
           <button
+            v-if="!isGoogleLoaded"
             type="button"
             :disabled="isLoading"
             class="w-full py-2.5 px-4 rounded-full border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/80 transition text-xs font-semibold text-slate-700 flex items-center justify-center gap-2.5 shadow-2xs active:scale-[0.99] cursor-pointer disabled:opacity-70"
