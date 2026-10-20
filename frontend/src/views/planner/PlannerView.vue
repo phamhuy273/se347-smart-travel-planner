@@ -26,9 +26,11 @@ const isMapPanelOpen = ref(true);
 
 // Dynamic Width Percentage for Right Map Panel
 const mapPanelWidthPercent = ref(45); // in %
-
-// Dragging State for Map Panel
 const isDraggingRight = ref(false);
+
+// Dynamic Width for Left Search Panel
+const searchPanelWidthPx = ref(320); // in px
+const isDraggingLeft = ref(false);
 
 const toggleSearchPanel = () => {
   isSearchPanelOpen.value = !isSearchPanelOpen.value;
@@ -48,6 +50,28 @@ const handleAddDay = () => {
     date: `2026-10-${10 + nextDayNum}`,
     places: [],
   });
+};
+
+// ─── Left Search Panel Resizable Dragging Logic ─────────────────────────────
+const startDragLeft = (e: MouseEvent) => {
+  e.preventDefault();
+  isDraggingLeft.value = true;
+  document.addEventListener('mousemove', onDragLeft);
+  document.addEventListener('mouseup', stopDragLeft);
+};
+
+const onDragLeft = (e: MouseEvent) => {
+  if (!isDraggingLeft.value || !workspaceRef.value) return;
+  const containerRect = workspaceRef.value.getBoundingClientRect();
+  const newWidthPx = e.clientX - containerRect.left;
+  // Bound search panel width between 240px and 560px
+  searchPanelWidthPx.value = Math.max(240, Math.min(560, newWidthPx));
+};
+
+const stopDragLeft = () => {
+  isDraggingLeft.value = false;
+  document.removeEventListener('mousemove', onDragLeft);
+  document.removeEventListener('mouseup', stopDragLeft);
 };
 
 // ─── Mapbox Map Resizable Handle Dragging Logic ─────────────────────────────
@@ -159,15 +183,26 @@ const stopDragRight = () => {
       ref="workspaceRef"
       :class="[
         'flex-1 flex min-h-0 w-full overflow-hidden relative',
-        isDraggingRight ? 'cursor-col-resize select-none' : '',
+        isDraggingLeft || isDraggingRight ? 'cursor-col-resize select-none' : '',
       ]"
     >
-      <!-- 1. Left Fixed Column: Search & Unassigned Pool (w-80 = 320px) -->
+      <!-- 1. Left Resizable Column: Search & Unassigned Pool -->
       <div
         v-if="isSearchPanelOpen"
-        class="w-80 h-full flex-shrink-0 relative overflow-hidden border-r border-slate-200/80 transition-all duration-300 ease-in-out"
+        class="h-full flex-shrink-0 relative overflow-hidden border-r border-slate-200/80"
+        :style="{ width: `${searchPanelWidthPx}px` }"
       >
         <PlaceSearchPanel />
+      </div>
+
+      <!-- Left Resizable Handle Bar -->
+      <div
+        v-if="isSearchPanelOpen"
+        class="w-1.5 h-full cursor-col-resize bg-slate-200/60 hover:bg-brand-blue active:bg-blue-600 transition-colors flex items-center justify-center group z-30 flex-shrink-0"
+        title="Kéo sang trái / phải để điều chỉnh độ rộng bảng tìm kiếm"
+        @mousedown="startDragLeft"
+      >
+        <div class="w-0.5 h-8 bg-slate-400 group-hover:bg-white rounded-full"></div>
       </div>
 
       <!-- Floating Expand Button for Left Panel when closed -->

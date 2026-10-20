@@ -1,29 +1,57 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import * as maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { usePlannerStore } from '@/stores/plannerStore';
-import { Maximize2, Key, ExternalLink, Check, AlertCircle } from 'lucide-vue-next';
+import { calculateDistance } from '@/utils/distance.util';
+import { Maximize2, ExternalLink, Check, AlertCircle, Settings, X, Layers, Route } from 'lucide-vue-next';
 
 interface MarkerRecord {
-  marker: mapboxgl.Marker;
+  marker: maplibregl.Marker;
   badgeEl: HTMLElement;
   lngLat: [number, number];
 }
 
 const plannerStore = usePlannerStore();
 const mapContainer = ref<HTMLElement | null>(null);
-let map: mapboxgl.Map | null = null;
+let map: maplibregl.Map | null = null;
 const markersMap = new Map<string, MarkerRecord>();
+let distanceMarkers: maplibregl.Marker[] = [];
 let resizeObserver: ResizeObserver | null = null;
 let isInitialFitDone = false;
+
+// OpenStreetMap High-Res Basemap (100% Free, Open, No API Key Required)
+const FREE_MAP_STYLE: any = {
+  version: 8,
+  sources: {
+    'osm-tiles': {
+      type: 'raster',
+      tiles: [
+        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+      maxzoom: 19,
+    },
+  },
+  layers: [
+    {
+      id: 'osm-tiles-layer',
+      type: 'raster',
+      source: 'osm-tiles',
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
 
 // Token state & Live preview input
 const envToken = import.meta.env.VITE_MAPBOX_TOKEN || '';
 const isDummyToken = !envToken || envToken.includes('wanderflow_dev_token') || envToken.includes('dev-user');
 const currentToken = ref(isDummyToken ? '' : envToken);
-const showTokenBanner = ref(isDummyToken);
-const inputToken = ref('');
+const showTokenModal = ref(false);
+const isUsingCustomMapbox = ref(false);
+const inputToken = ref(currentToken.value);
 
 const initMap = (tokenToUse: string) => {
   if (!mapContainer.value) return;
@@ -36,56 +64,71 @@ const initMap = (tokenToUse: string) => {
     map = null;
   }
 
-  if (tokenToUse && tokenToUse.startsWith('pk.')) {
-    mapboxgl.accessToken = tokenToUse;
-    showTokenBanner.value = false;
-  } else {
-    showTokenBanner.value = true;
-    return;
-  }
+  const hasValidMapboxToken = Boolean(tokenToUse && tokenToUse.startsWith('pk.') && !isDummyToken);
+  isUsingCustomMapbox.value = hasValidMapboxToken;
+
+  const styleToUse = hasValidMapboxToken
+    ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12?access_token=${tokenToUse}`
+    : FREE_MAP_STYLE;
 
   try {
-    map = new mapboxgl.Map({
+    map = new maplibregl.Map({
       container: mapContainer.value,
-      style: 'mapbox://styles/mapbox/streets-v12',
+      style: styleToUse,
       center: [108.22, 16.06], // Center on Da Nang
       zoom: 11.5,
     });
 
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'bottom-right');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+
+    (window as any).__map = map;
+
+    map.on('style.load', () => {
+      console.log('[Map] Style loaded successfully');
+    });
 
     map.on('load', () => {
-      showTokenBanner.value = false;
+      console.log('[Map] Map load event fired');
       reconcileMarkersAndRoutes(true);
     });
 
     map.on('error', (e: any) => {
-      // Catch 401 unauthorized or invalid token error
-      if (e?.error?.status === 401 || e?.status === 401 || (typeof e?.error?.message === 'string' && e.error.message.includes('token'))) {
-        showTokenBanner.value = true;
+      console.error('[Map Error]', e?.error?.message || e?.message || e);
+      // If Mapbox custom style fails due to 401 unauthorized, fallback to Free Carto
+      if (
+        isUsingCustomMapbox.value &&
+        (e?.error?.status === 401 || e?.status === 401 || (typeof e?.error?.message === 'string' && e.error.message.includes('token')))
+      ) {
+        console.warn('Mapbox token error, falling back to OpenStreetMap style');
+        isUsingCustomMapbox.value = false;
+        map?.setStyle(FREE_MAP_STYLE);
       }
     });
-  } catch {
-    showTokenBanner.value = true;
+  } catch (err) {
+    console.error('Map init error:', err);
   }
 };
 
 const applyLiveToken = () => {
   const token = inputToken.value.trim();
-  if (!token.startsWith('pk.')) {
+  if (token && !token.startsWith('pk.')) {
     alert('Token Mapbox phải bắt đầu bằng "pk."');
     return;
   }
   currentToken.value = token;
+  showTokenModal.value = false;
   initMap(token);
 };
 
+const switchToFreeMap = () => {
+  currentToken.value = '';
+  inputToken.value = '';
+  showTokenModal.value = false;
+  initMap('');
+};
+
 onMounted(() => {
-  if (currentToken.value && !isDummyToken) {
-    initMap(currentToken.value);
-  } else {
-    showTokenBanner.value = true;
-  }
+  initMap(currentToken.value);
 
   if (mapContainer.value) {
     resizeObserver = new ResizeObserver(() => {
@@ -100,6 +143,8 @@ onUnmounted(() => {
     resizeObserver.unobserve(mapContainer.value);
     resizeObserver.disconnect();
   }
+  distanceMarkers.forEach((m) => m.remove());
+  distanceMarkers = [];
   markersMap.forEach((rec) => rec.marker.remove());
   markersMap.clear();
   if (map) {
@@ -108,9 +153,25 @@ onUnmounted(() => {
   }
 });
 
+// Computed: Total route distance for currently shown day
+const totalDayDistance = computed(() => {
+  const places = plannerStore.allMapPlaces;
+  if (places.length < 2) return null;
+  let totalKm = 0;
+  for (let i = 0; i < places.length - 1; i++) {
+    const p1 = places[i];
+    const p2 = places[i + 1];
+    if (p1.dayNumber && p2.dayNumber && p1.dayNumber === p2.dayNumber) {
+      const d = calculateDistance(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
+      totalKm += d.km;
+    }
+  }
+  return totalKm > 0 ? `${totalKm.toFixed(1)} km` : null;
+});
+
 // ─── High Performance Marker Reconciliation (Diffing O(N)) ──────────────────
 const reconcileMarkersAndRoutes = (shouldFitBounds = false) => {
-  if (!map || !map.isStyleLoaded()) return;
+  if (!map) return;
 
   const places = plannerStore.allMapPlaces;
   const currentPlaceIds = new Set(places.map((p) => p.id));
@@ -124,12 +185,10 @@ const reconcileMarkersAndRoutes = (shouldFitBounds = false) => {
   }
 
   // 2. Add or Update markers
-  const bounds = new mapboxgl.LngLatBounds();
   const dayCoordinates: Record<number, { coords: [number, number][]; color: string }> = {};
 
   places.forEach((place, index) => {
     const lngLat: [number, number] = [place.longitude, place.latitude];
-    bounds.extend(lngLat);
 
     if (place.dayNumber) {
       if (!dayCoordinates[place.dayNumber]) {
@@ -183,14 +242,14 @@ const reconcileMarkersAndRoutes = (shouldFitBounds = false) => {
         plannerStore.openPlaceDetail(place);
       });
 
-      const popup = new mapboxgl.Popup({ offset: 25, closeButton: false }).setHTML(`
+      const popup = new maplibregl.Popup({ offset: 25, closeButton: false }).setHTML(`
         <div style="font-family: sans-serif; padding: 2px;">
           <h4 style="font-weight: 700; font-size: 12px; margin: 0 0 2px 0; color: #0F172A;">${place.placeName}</h4>
           <p style="font-size: 10px; color: #64748B; margin: 0;">${place.formattedAddress || ''}</p>
         </div>
       `);
 
-      const marker = new mapboxgl.Marker(el)
+      const marker = new maplibregl.Marker({ element: el })
         .setLngLat(lngLat)
         .setPopup(popup)
         .addTo(map!);
@@ -199,12 +258,73 @@ const reconcileMarkersAndRoutes = (shouldFitBounds = false) => {
     }
   });
 
-  // 3. Update GeoJSON Route Polylines
-  updateRouteLayers(dayCoordinates);
+  // 3. Update GeoJSON Route Polylines (if style is ready)
+  try {
+    if (map.isStyleLoaded()) {
+      updateRouteLayers(dayCoordinates);
+    }
+  } catch (err) {
+    console.warn('[Map Route Polylines Error]', err);
+  }
 
-  // 4. Fit bounds on initial load
-  if (shouldFitBounds && places.length > 0 && !bounds.isEmpty()) {
-    map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 });
+  // 4. Update Distance Badges on Map along consecutive points
+  distanceMarkers.forEach((m) => m.remove());
+  distanceMarkers = [];
+
+  if (places.length >= 2) {
+    for (let i = 0; i < places.length - 1; i++) {
+      const p1 = places[i];
+      const p2 = places[i + 1];
+
+      // Chỉ nối khoảng cách nếu 2 điểm cùng 1 ngày
+      if (p1.dayNumber && p2.dayNumber && p1.dayNumber === p2.dayNumber) {
+        const dist = calculateDistance(p1.latitude, p1.longitude, p2.latitude, p2.longitude);
+        const midLng = (p1.longitude + p2.longitude) / 2;
+        const midLat = (p1.latitude + p2.latitude) / 2;
+
+        const badgeEl = document.createElement('div');
+        badgeEl.className = 'distance-map-badge select-none pointer-events-none';
+        badgeEl.style.cssText = `
+          background-color: rgba(255, 255, 255, 0.95);
+          border: 1.5px solid #CBD5E1;
+          border-radius: 9999px;
+          padding: 2px 8px;
+          font-size: 10px;
+          font-weight: 800;
+          color: #0F172A;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+          display: flex;
+          align-items: center;
+          gap: 3px;
+          white-space: nowrap;
+          backdrop-filter: blur(4px);
+        `;
+        badgeEl.innerHTML = `<span>${dist.isWalking ? '🚶' : '🚗'}</span><span>${dist.text}</span>`;
+
+        const distMarker = new maplibregl.Marker({ element: badgeEl })
+          .setLngLat([midLng, midLat])
+          .addTo(map!);
+
+        distanceMarkers.push(distMarker);
+      }
+    }
+  }
+
+  // 5. Fit bounds or fly to place on initial load or day switch
+  if (shouldFitBounds && places.length > 0) {
+    if (places.length === 1) {
+      map.flyTo({
+        center: [places[0].longitude, places[0].latitude],
+        zoom: 14,
+        duration: 700,
+      });
+    } else {
+      const bounds = new maplibregl.LngLatBounds();
+      places.forEach((p) => bounds.extend([p.longitude, p.latitude]));
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: 70, maxZoom: 14, duration: 700 });
+      }
+    }
     isInitialFitDone = true;
   }
 };
@@ -226,7 +346,7 @@ const updateRouteLayers = (dayCoordinates: Record<number, { coords: [number, num
       },
     };
 
-    const existingSource = map.getSource(sourceId) as mapboxgl.GeoJSONSource | undefined;
+    const existingSource = map.getSource(sourceId) as maplibregl.GeoJSONSource | undefined;
     if (existingSource) {
       existingSource.setData(geojsonData);
     } else if (dayData && dayData.coords.length >= 2) {
@@ -258,9 +378,13 @@ const fitAllMarkers = () => {
   if (!map) return;
   const places = plannerStore.allMapPlaces;
   if (places.length === 0) return;
-  const bounds = new mapboxgl.LngLatBounds();
+  if (places.length === 1) {
+    map.flyTo({ center: [places[0].longitude, places[0].latitude], zoom: 14, duration: 700 });
+    return;
+  }
+  const bounds = new maplibregl.LngLatBounds();
   places.forEach((p) => bounds.extend([p.longitude, p.latitude]));
-  map.fitBounds(bounds, { padding: 60, maxZoom: 14.5, duration: 800 });
+  map.fitBounds(bounds, { padding: 70, maxZoom: 14, duration: 700 });
 };
 
 watch(
@@ -278,10 +402,12 @@ watch(
   }
 );
 
+// Consolidated reactivity: update markers and fit camera smoothly whenever day or places change
 watch(
-  () => plannerStore.allMapPlaces,
-  () => {
-    reconcileMarkersAndRoutes(!isInitialFitDone);
+  () => [plannerStore.selectedDayNumber, plannerStore.allMapPlaces] as const,
+  ([newDay], [oldDay]) => {
+    const isDayChanged = newDay !== oldDay;
+    reconcileMarkersAndRoutes(isDayChanged || !isInitialFitDone);
   },
   { deep: true }
 );
@@ -292,16 +418,66 @@ watch(
     <!-- Map Canvas -->
     <div ref="mapContainer" class="w-full h-full"></div>
 
-    <!-- Top Overlay Badge -->
-    <div class="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-md border border-white/60 flex items-center gap-2">
-      <div :class="['w-2.5 h-2.5 rounded-full', showTokenBanner ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse']"></div>
-      <span class="text-xs font-bold text-slate-800">Mapbox GL JS Engine</span>
+    <!-- Top Overlay Badge: Indicator + Engine Switcher -->
+    <div class="absolute top-4 left-4 z-10 flex items-center gap-2">
+      <div class="bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-md border border-slate-200/80 flex items-center gap-2">
+        <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+        <span class="text-xs font-bold text-slate-800">
+          {{ isUsingCustomMapbox ? 'Mapbox Streets Engine' : 'Bản đồ Tương tác (Du lịch)' }}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        class="bg-white/95 hover:bg-white text-slate-600 hover:text-brand-blue backdrop-blur-md px-2.5 py-1.5 rounded-2xl shadow-md border border-slate-200/80 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+        title="Cấu hình Mapbox Token"
+        @click="showTokenModal = true"
+      >
+        <Settings class="w-3.5 h-3.5 text-slate-500" />
+        <span class="hidden sm:inline">Nguồn bản đồ</span>
+      </button>
+    </div>
+
+    <!-- Day Filter Pills & Total Distance on Map -->
+    <div class="absolute top-15 left-4 z-10 flex items-center gap-1 bg-white/95 backdrop-blur-md p-1 rounded-2xl shadow-md border border-slate-200/80 max-w-[calc(100%-8rem)] overflow-x-auto no-scrollbar">
+      <button
+        type="button"
+        class="px-2.5 py-1 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap"
+        :class="plannerStore.selectedDayNumber === null
+          ? 'bg-slate-900 text-white shadow-2xs'
+          : 'text-slate-600 hover:bg-slate-100'"
+        @click="plannerStore.selectDay(null)"
+      >
+        Tất cả ngày
+      </button>
+
+      <button
+        v-for="d in plannerStore.days"
+        :key="d.id"
+        type="button"
+        class="px-2.5 py-1 rounded-xl text-[11px] font-bold transition flex items-center gap-1 cursor-pointer whitespace-nowrap"
+        :class="plannerStore.selectedDayNumber === d.dayNumber
+          ? 'bg-brand-blue text-white shadow-2xs'
+          : 'text-slate-600 hover:bg-slate-100'"
+        @click="plannerStore.selectDay(d.dayNumber)"
+      >
+        <span>Ngày {{ d.dayNumber }}</span>
+        <span class="text-[9px] opacity-80">({{ d.places.length }})</span>
+      </button>
+
+      <!-- Total Distance indicator if available -->
+      <div
+        v-if="totalDayDistance"
+        class="ml-1 pl-2 border-l border-slate-200 flex items-center gap-1 text-[11px] font-black text-brand-blue whitespace-nowrap pr-1.5"
+      >
+        <Route class="w-3.5 h-3.5 text-brand-blue" />
+        <span>{{ totalDayDistance }}</span>
+      </div>
     </div>
 
     <!-- Floating Fit Bounds Button -->
     <button
-      v-if="!showTokenBanner"
-      class="absolute top-4 right-4 z-10 bg-white/90 hover:bg-white hover:text-brand-blue backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-md border border-slate-200/80 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition"
+      class="absolute top-4 right-4 z-10 bg-white/95 hover:bg-white hover:text-brand-blue backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-md border border-slate-200/80 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition cursor-pointer"
       title="Căn chỉnh toàn cảnh lịch trình"
       @click="fitAllMarkers"
     >
@@ -309,26 +485,52 @@ watch(
       <span>Toàn cảnh</span>
     </button>
 
-    <!-- Mapbox Token Setup Banner (Overlay when token is missing/invalid) -->
+    <!-- Optional Token / Basemap Settings Modal -->
     <div
-      v-if="showTokenBanner"
-      class="absolute inset-0 z-20 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-6"
+      v-if="showTokenModal"
+      class="absolute inset-0 z-30 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-6 animate-in fade-in duration-150"
     >
-      <div class="bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 max-w-md w-full text-center animate-in fade-in zoom-in-95 duration-200">
+      <div class="bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 max-w-md w-full animate-in zoom-in-95 duration-200 relative">
+        <button
+          type="button"
+          class="absolute top-4 right-4 p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+          @click="showTokenModal = false"
+        >
+          <X class="w-4 h-4" />
+        </button>
+
         <div class="w-12 h-12 rounded-2xl bg-blue-50 text-brand-blue flex items-center justify-center mx-auto mb-3.5 shadow-xs">
-          <Key class="w-6 h-6" />
+          <Layers class="w-6 h-6" />
         </div>
 
-        <h3 class="text-sm font-black text-slate-900 mb-1.5">
-          Kết nối Mapbox Access Token
+        <h3 class="text-sm font-black text-slate-900 text-center mb-1.5">
+          Tùy chọn Nguồn Bản Đồ
         </h3>
-        <p class="text-xs text-slate-500 leading-relaxed mb-4">
-          Bản đồ tương tác và lộ trình di chuyển cần có Public Access Token từ Mapbox (hoàn toàn miễn phí).
+        <p class="text-xs text-slate-500 text-center leading-relaxed mb-4">
+          Bản đồ hiện đang hoạt động mượt mà với CARTO Voyager & OpenStreetMap. Bạn có thể tiếp tục sử dụng miễn phí hoặc kết nối Mapbox Token cá nhân.
         </p>
+
+        <!-- Current Status -->
+        <div class="mb-4 p-3 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div :class="['w-2 h-2 rounded-full', isUsingCustomMapbox ? 'bg-blue-500' : 'bg-emerald-500']"></div>
+            <span class="text-xs font-semibold text-slate-700">
+              {{ isUsingCustomMapbox ? 'Đang dùng: Mapbox Streets v12' : 'Đang dùng: CARTO Voyager (Miễn phí)' }}
+            </span>
+          </div>
+          <button
+            v-if="isUsingCustomMapbox"
+            type="button"
+            class="text-[11px] text-rose-500 hover:underline font-bold cursor-pointer"
+            @click="switchToFreeMap"
+          >
+            Về bản đồ miễn phí
+          </button>
+        </div>
 
         <!-- Direct Live Paste Input -->
         <div class="space-y-2 mb-4 text-left">
-          <label class="block text-[11px] font-bold text-slate-700">Dán Token của bạn vào đây để xem ngay:</label>
+          <label class="block text-[11px] font-bold text-slate-700">Dán Token Mapbox của bạn (tùy chọn):</label>
           <div class="flex gap-2">
             <input
               v-model="inputToken"
@@ -338,11 +540,11 @@ watch(
             />
             <button
               type="button"
-              class="px-4 py-2 rounded-xl text-xs font-bold bg-brand-blue hover:bg-blue-600 text-white flex items-center gap-1 shadow-sm transition"
+              class="px-4 py-2 rounded-xl text-xs font-bold bg-brand-blue hover:bg-blue-600 text-white flex items-center gap-1 shadow-sm transition cursor-pointer"
               @click="applyLiveToken"
             >
               <Check class="w-3.5 h-3.5" />
-              <span>Áp dụng</span>
+              <span>Lưu</span>
             </button>
           </div>
         </div>
@@ -350,12 +552,11 @@ watch(
         <div class="bg-slate-50 rounded-2xl p-3 border border-slate-200/80 text-left text-[11px] text-slate-600 space-y-1.5">
           <p class="font-bold text-slate-800 flex items-center gap-1">
             <AlertCircle class="w-3.5 h-3.5 text-blue-600" />
-            Cách lưu vĩnh viễn vào dự án:
+            Lấy token Mapbox miễn phí:
           </p>
-          <ol class="list-decimal list-inside space-y-1 text-slate-500 pl-1">
-            <li>Lấy token miễn phí tại <a href="https://account.mapbox.com" target="_blank" class="text-brand-blue font-bold hover:underline inline-flex items-center gap-0.5">account.mapbox.com <ExternalLink class="w-2.5 h-2.5" /></a></li>
-            <li>Dán vào file <code class="bg-slate-200 px-1 py-0.5 rounded text-[10px] text-slate-800">.env</code> dòng: <code class="text-blue-700">VITE_MAPBOX_TOKEN=pk.xxx</code></li>
-          </ol>
+          <p class="text-slate-500">
+            Đăng ký tài khoản miễn phí tại <a href="https://account.mapbox.com" target="_blank" class="text-brand-blue font-bold hover:underline inline-flex items-center gap-0.5">account.mapbox.com <ExternalLink class="w-2.5 h-2.5" /></a> để lấy token bắt đầu bằng <code class="text-blue-700">pk.</code>.
+          </p>
         </div>
       </div>
     </div>
@@ -363,7 +564,7 @@ watch(
 </template>
 
 <style>
-.mapboxgl-popup-content {
+.maplibregl-popup-content {
   border-radius: 16px !important;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1) !important;
   border: 1px solid rgba(226, 232, 240, 0.8) !important;

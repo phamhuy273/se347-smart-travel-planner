@@ -19,7 +19,7 @@ import {
 } from 'lucide-vue-next';
 import type { PlaceItem, PlaceCategory } from '@/types/planner.type';
 import { usePlannerStore } from '@/stores/plannerStore';
-import { foursquareService } from '@/services/foursquare.service';
+import { goongService } from '@/services/goong.service';
 
 const props = defineProps<{
   place: PlaceItem | null;
@@ -36,7 +36,7 @@ const richData = ref<Partial<PlaceItem>>({});
 const isLoading = ref(false);
 const isCopied = ref(false);
 
-// Load rich Foursquare details when place changes
+// Load rich details when place changes
 watch(
   () => props.place,
   async (newPlace) => {
@@ -48,7 +48,7 @@ watch(
 
     isLoading.value = true;
     try {
-      richData.value = await foursquareService.getPlaceDetails(newPlace);
+      richData.value = await goongService.getPlaceDetails(newPlace);
     } finally {
       isLoading.value = false;
     }
@@ -223,7 +223,7 @@ const handleRemove = () => {
           <div v-if="richData.website" class="flex items-center gap-2 text-slate-600 truncate">
             <Globe class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
             <a :href="richData.website" target="_blank" class="text-brand-blue hover:underline truncate flex items-center gap-1">
-              <span>Trang web chính thức</span>
+              <span>{{ richData.website.includes('wikipedia') ? 'Xem bài viết Wikipedia' : 'Trang web chính thức' }}</span>
               <ExternalLink class="w-3 h-3" />
             </a>
           </div>
@@ -231,9 +231,17 @@ const handleRemove = () => {
 
         <!-- Highlights & Description -->
         <div class="pt-2 border-t border-slate-100">
-          <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2">
-            Giới thiệu & Điểm nổi bật
-          </h3>
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wider">
+              Giới thiệu & Điểm nổi bật
+            </h3>
+            <span
+              v-if="richData.website?.includes('wikipedia.org')"
+              class="text-[9px] font-semibold text-sky-700 bg-sky-50 border border-sky-200/60 px-1.5 py-0.5 rounded flex items-center gap-1"
+            >
+              <span>Nguồn: Wikipedia</span>
+            </span>
+          </div>
           <p class="text-xs text-slate-600 leading-relaxed">
             {{ richData.description }}
           </p>

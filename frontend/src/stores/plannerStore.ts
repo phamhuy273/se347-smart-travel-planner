@@ -7,7 +7,7 @@ export const usePlannerStore = defineStore('planner', () => {
   const tripId = ref<string>('demo-trip-1');
   const tripTitle = ref<string>('Khám Phá Đà Nẵng - Hội An 4 Ngày 3 Đêm');
   const activePlaceId = ref<string | null>(null);
-  const selectedDayNumber = ref<number | null>(null); // null = All days shown on map
+  const selectedDayNumber = ref<number | null>(1); // Default to Day 1
 
   // Mock initial days & places for testing UI & Map
   const days = ref<TripDay[]>([
@@ -25,7 +25,7 @@ export const usePlannerStore = defineStore('planner', () => {
           formattedAddress: 'Hòa Thuận Tây, Hải Châu, Đà Nẵng',
           latitude: 16.0439,
           longitude: 108.1994,
-          thumbnailUrl: 'https://images.unsplash.com/photo-1542296332-2e4473faf563?w=300',
+          thumbnailUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Da_Nang_International_Airport%2C_Vietnam.jpg/1280px-Da_Nang_International_Airport%2C_Vietnam.jpg',
           category: 'TRANSPORT',
           startTime: '08:00',
           durationMinutes: 60,
@@ -40,7 +40,7 @@ export const usePlannerStore = defineStore('planner', () => {
           formattedAddress: 'An Hải Tây, Sơn Trà, Đà Nẵng',
           latitude: 16.061,
           longitude: 108.2274,
-          thumbnailUrl: 'https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=300',
+          thumbnailUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Dragon_Bridge%2C_Da_Nang_during_day_-_20230819_%28cropped%29.jpg/1280px-Dragon_Bridge%2C_Da_Nang_during_day_-_20230819_%28cropped%29.jpg',
           category: 'ATTRACTION',
           startTime: '10:00',
           durationMinutes: 90,
@@ -55,7 +55,7 @@ export const usePlannerStore = defineStore('planner', () => {
           formattedAddress: '19 Trần Bình Trọng, Hải Châu, Đà Nẵng',
           latitude: 16.0658,
           longitude: 108.2195,
-          thumbnailUrl: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=300',
+          thumbnailUrl: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=800',
           category: 'RESTAURANT',
           startTime: '12:00',
           durationMinutes: 60,
@@ -78,7 +78,7 @@ export const usePlannerStore = defineStore('planner', () => {
           formattedAddress: 'Hòa Ninh, Hòa Vang, Đà Nẵng',
           latitude: 15.9984,
           longitude: 107.988,
-          thumbnailUrl: 'https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=300',
+          thumbnailUrl: 'https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a5/The_Golden_Bridge%2C_Ba_Na_Hills%2C_Vietnam.jpg/1280px-The_Golden_Bridge%2C_Ba_Na_Hills%2C_Vietnam.jpg',
           category: 'ATTRACTION',
           startTime: '08:30',
           durationMinutes: 240,
@@ -93,7 +93,7 @@ export const usePlannerStore = defineStore('planner', () => {
           formattedAddress: 'Võ Nguyên Giáp, Phước Mỹ, Sơn Trà, Đà Nẵng',
           latitude: 16.0597,
           longitude: 108.2468,
-          thumbnailUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300',
+          thumbnailUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800',
           category: 'ATTRACTION',
           startTime: '16:00',
           durationMinutes: 120,
@@ -116,7 +116,7 @@ export const usePlannerStore = defineStore('planner', () => {
           formattedAddress: 'Minh An, Hội An, Quảng Nam',
           latitude: 15.8801,
           longitude: 108.338,
-          thumbnailUrl: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=300',
+          thumbnailUrl: 'https://images.unsplash.com/photo-1528127269322-539801943592?w=800',
           category: 'ATTRACTION',
           startTime: '15:00',
           durationMinutes: 180,
@@ -137,7 +137,7 @@ export const usePlannerStore = defineStore('planner', () => {
       formattedAddress: 'Thọ Quang, Sơn Trà, Đà Nẵng',
       latitude: 16.1011,
       longitude: 108.2778,
-      thumbnailUrl: 'https://images.unsplash.com/photo-1528127269322-539801943592?w=300',
+      thumbnailUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fe/Son-Tra-Peninsula_Da-Nang_Vietnam_Linh-Ung-Pagoda-01.jpg/1280px-Son-Tra-Peninsula_Da-Nang_Vietnam_Linh-Ung-Pagoda-01.jpg',
       category: 'ATTRACTION',
       durationMinutes: 90,
       notes: 'Ghé ngắm tượng Phật Bà Chùa Linh Ứng',
@@ -151,7 +151,7 @@ export const usePlannerStore = defineStore('planner', () => {
       formattedAddress: 'Mai Hắc Đế, An Hải Trung, Sơn Trà, Đà Nẵng',
       latitude: 16.0622,
       longitude: 108.2295,
-      thumbnailUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=300',
+      thumbnailUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800',
       category: 'RESTAURANT',
       durationMinutes: 90,
       notes: 'Thưởng thức hải sản nướng chợ đêm',
@@ -159,13 +159,17 @@ export const usePlannerStore = defineStore('planner', () => {
     },
   ]);
 
-  // Computed: Map markers list
+  // Computed: Map markers list (Chỉ hiển thị địa điểm của Ngày được chọn)
   const allMapPlaces = computed(() => {
     const list: (PlaceItem & { dayNumber?: number; dayColor?: string })[] = [];
     const dayColors = ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B', '#EC4899'];
 
-    days.value.forEach((day, index) => {
-      const color = dayColors[index % dayColors.length];
+    const targetDays = selectedDayNumber.value !== null
+      ? days.value.filter((d) => d.dayNumber === selectedDayNumber.value)
+      : days.value;
+
+    targetDays.forEach((day) => {
+      const color = dayColors[(day.dayNumber - 1) % dayColors.length];
       day.places.forEach((place) => {
         list.push({
           ...place,
@@ -314,10 +318,22 @@ export const usePlannerStore = defineStore('planner', () => {
     selectedDetailPlace.value = place;
     isDetailDrawerOpen.value = true;
     setActivePlace(place.id);
+
+    // Tự động chuyển ngày trên bản đồ nếu địa điểm thuộc một ngày cụ thể
+    if (place.tripDayId) {
+      const targetDay = days.value.find((d) => d.id === place.tripDayId);
+      if (targetDay) {
+        selectedDayNumber.value = targetDay.dayNumber;
+      }
+    }
   };
 
   const closePlaceDetail = () => {
     isDetailDrawerOpen.value = false;
+  };
+
+  const selectDay = (dayNum: number | null) => {
+    selectedDayNumber.value = dayNum;
   };
 
   return {
@@ -331,6 +347,7 @@ export const usePlannerStore = defineStore('planner', () => {
     selectedDetailPlace,
     isDetailDrawerOpen,
     setActivePlace,
+    selectDay,
     openPlaceDetail,
     closePlaceDetail,
     addPlaceToDay,

@@ -53,6 +53,8 @@ export interface SearchPlaceResult {
   rating?: number;
   description?: string;
   fsqId?: string;
+  photos?: string[];
+  tips?: string[];
 }
 
 export interface ReorderPlacePayload {
