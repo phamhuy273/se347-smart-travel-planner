@@ -1,9 +1,27 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma, TripVisibility } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTripDto } from './dto/create-trip.dto';
+import { GetTripsQueryDto, TripTab } from './dto/get-trips-query.dto';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MAX_TRIP_DAYS = 365;
+
+const tripOwnerSelect = {
+  id: true,
+  full_name: true,
+  avatar_url: true,
+} satisfies Prisma.UserSelect;
+
+const tripListInclude = {
+  owner: { select: tripOwnerSelect },
+  _count: { select: { days: true, place_items: true, likes: true, bookmarks: true } },
+} satisfies Prisma.TripInclude;
 
 @Injectable()
 export class TripsService {
@@ -56,6 +74,93 @@ export class TripsService {
           days: { orderBy: { day_number: 'asc' } },
         },
       });
+    });
+  }
+
+  async findAll(userId: string, query: GetTripsQueryDto) {
+    const tab = query.tab ?? TripTab.ALL;
+    const search = query.search?.trim();
+
+    const conditions: Prisma.TripWhereInput = { is_deleted: false };
+
+    if (search) {
+      conditions.title = { contains: search, mode: 'insensitive' };
+    }
+
+    let where: Prisma.TripWhereInput;
+
+    switch (tab) {
+      case TripTab.MINE:
+        where = { ...conditions, owner_id: userId };
+        break;
+      case TripTab.SAVED:
+        where = { ...conditions, bookmarks: { some: { user_id: userId } } };
+        break;
+      default:
+        where = {
+          ...conditions,
+          OR: [
+            { visibility: TripVisibility.PUBLIC },
+            { owner_id: userId },
+            { members: { some: { user_id: userId } } },
+          ],
+        };
+    }
+
+    return this.prisma.trip.findMany({
+      where,
+      include: tripListInclude,
+      orderBy: { created_at: 'desc' },
+    });
+  }
+
+  async findOne(userId: string, tripId: string) {
+    const trip = await this.prisma.trip.findFirst({
+      where: { id: tripId, is_deleted: false },
+      include: {
+        owner: { select: tripOwnerSelect },
+        days: { orderBy: { day_number: 'asc' } },
+        members: {
+          where: { user_id: userId },
+          select: { role: true },
+        },
+      },
+    });
+
+    if (!trip) {
+      throw new NotFoundException('Không tìm thấy chuyến đi');
+    }
+
+    const isOwner = trip.owner_id === userId;
+    const isMember = trip.members.length > 0;
+
+    if (trip.visibility === TripVisibility.PRIVATE && !isOwner && !isMember) {
+      throw new ForbiddenException('Bạn không có quyền xem chuyến đi này');
+    }
+
+    const { members, ...result } = trip;
+
+    return {
+      ...result,
+      my_role: isOwner ? 'OWNER' : isMember ? members[0].role : null,
+    };
+  }
+
+  async findUpcoming(userId: string) {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    return this.prisma.trip.findFirst({
+      where: {
+        owner_id: userId,
+        is_deleted: false,
+        start_date: { gte: today },
+      },
+      include: {
+        owner: { select: tripOwnerSelect },
+        days: { orderBy: { day_number: 'asc' } },
+      },
+      orderBy: [{ start_date: 'asc' }, { created_at: 'asc' }],
     });
   }
 
