@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import TripCard from '@/components/TripCard.vue';
+import TripCard from '@/components/trips/TripCard.vue';
+import CreateTripModal from '@/components/trips/CreateTripModal.vue';
 import type { Trip } from '@/types/trip';
 
 const img = (name: string) => new URL(`../../assets/my_planner/${name}`, import.meta.url).href;
@@ -8,18 +9,23 @@ const img = (name: string) => new URL(`../../assets/my_planner/${name}`, import.
 const tabs = ['Tất cả (8)', 'Của tôi (3)', 'Đã lưu (5)'];
 const activeTab = ref('Của tôi (3)');
 const query = ref('');
+const createModalOpen = ref(false);
 
 // MOCKUP DATA
-const trips: Trip[] = [
+const tripList = ref<Trip[]>([
   { title: 'Đà Lạt chill', dates: '10/06 - 13/06', duration: '4 ngày', members: 3, location: 'Đà Lạt, Lâm Đồng', author: 'Pham Huy', image: 'DaLat.png', status: 'Đang lên kế hoạch', secondary: 'Của tôi' },
   { title: 'Sapa mờ sương', dates: '10/10 - 25/10', duration: '16 ngày', members: 5, location: 'Sapa', author: 'Bich Ngoc', image: 'Sapa.png', status: 'Sắp tới', secondary: 'Đã lưu' },
   { title: 'Khám phá Ninh Bình', dates: '15/03 - 18/03', duration: '4 ngày', members: 2, location: 'Ninh Bình', author: 'Pham Huy', image: 'NinhBinh.png', status: 'Đang lên kế hoạch', secondary: 'Của tôi' },
-];
+]);
 
 const visibleTrips = computed(() => {
   const q = query.value.trim().toLocaleLowerCase('vi');
-  return trips.filter((t) => t.title.toLocaleLowerCase('vi').includes(q));
+  return tripList.value.filter((t) => t.title.toLocaleLowerCase('vi').includes(q));
 });
+
+const onTripCreated = (trip: Trip) => {
+  tripList.value.unshift(trip);
+};
 </script>
 
 <template>
@@ -30,6 +36,8 @@ const visibleTrips = computed(() => {
         <img :src="img('icon_search.svg')" alt="" />
         <input v-model="query" placeholder="Tìm tên chuyến đi" aria-label="Tìm tên chuyến đi" />
       </label>
+
+    <CreateTripModal v-if="createModalOpen" @close="createModalOpen = false" @created="onTripCreated" />
     </div>
 
     <div class="tabs" role="tablist">
@@ -54,6 +62,16 @@ const visibleTrips = computed(() => {
       <TripCard v-for="trip in visibleTrips" :key="trip.title" :trip="trip" />
       <p v-if="visibleTrips.length === 0" class="empty-state">Không tìm thấy chuyến đi phù hợp.</p>
     </div>
+    
+    <button
+        class="create-trip-fab"
+        type="button"
+        aria-label="Tạo chuyến đi mới"
+        :aria-expanded="createModalOpen"
+        @click="createModalOpen = true"
+      >
+        <span aria-hidden="true">+</span>
+    </button>
   </section>
 </template>
 
@@ -73,7 +91,15 @@ const visibleTrips = computed(() => {
 .tab-lines .active-line { left: 145px; width: 149px; height: 3px; transform: translateY(-1px); }
 .trip-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px 19px; padding-top: 16px; align-items: start; }
 .empty-state { grid-column: 1 / -1; margin: 55px 0; color: #757d6f; text-align: center; font-weight: 500; }
+.create-trip-fab { position: fixed; z-index: 30; right: 34px; bottom: 30px; display: grid; width: 66px; height: 66px; place-items: center; border: 4px solid rgb(255 255 255 / 88%); border-radius: 50%; background: #128078; box-shadow: 0 8px 22px rgb(4 59 92 / 34%), 0 0 0 4px rgb(107 195 242 / 38%); color: white; cursor: pointer; transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease; }
+.create-trip-fab span { transform: translateY(-2px); font-size: 42px; font-weight: 400; line-height: 1; }
+.create-trip-fab:hover { transform: translateY(-3px) scale(1.03); background: #0d716a; box-shadow: 0 12px 26px rgb(4 59 92 / 38%), 0 0 0 5px rgb(107 195 242 / 45%); }
+.create-trip-fab:focus-visible { outline: 3px solid #043b5c; outline-offset: 5px; }
 
+@media (max-width: 760px) {
+  .create-trip-fab { right: 21px; bottom: 22px; width: 58px; height: 58px; }
+  .create-trip-fab span { font-size: 37px; }
+}
 @media (max-width: 1100px) { .trip-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) {
   .content-heading { flex-direction: column; align-items: stretch; gap: 15px; }

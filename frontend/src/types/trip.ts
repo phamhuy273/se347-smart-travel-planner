@@ -9,3 +9,13 @@ export interface Trip {
   status: string;
   secondary?: 'Của tôi' | 'Đã lưu';
 }
+
+export interface UnsplashPhoto {
+  id: string;
+  alt: string;
+  author: string;
+  authorUrl: string;
+  downloadLocation: string;
+  regular: string;
+  thumb: string;
+}
