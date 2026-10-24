@@ -413,6 +413,7 @@ const scrollFeatured = (direction: 'left' | 'right') => {
           <!-- Create new trip button -->
           <button
             class="mt-5 w-full flex items-center justify-center gap-2 py-2.5 bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-bold rounded-full transition-all duration-200 shadow-sm active:scale-[0.98]"
+            @click="$router.push('/trips')"
           >
             <Plus class="w-3.5 h-3.5" />
             Tạo chuyến đi mới
