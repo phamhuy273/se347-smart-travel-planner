@@ -1,22 +1,22 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import type { Trip } from '@/types/trip';
 
-defineProps<{ trip: Trip }>();
+const props = defineProps<{ trip: Trip }>();
 
 const menuOpen = ref(false);
-const img = (name: string) => {
-  if (!name) return '';
-  if (name.startsWith('http') || name.startsWith('data:')) return name; 
-  
-  return new URL(`../assets/my_planner/${name}`, import.meta.url).href;
-};
+const img = (name: string) => new URL(`../../assets/my_planner/${name}`, import.meta.url).href;
+
+// URL đầy đủ (http, blob, /...) dùng thẳng; tên file thì lấy từ assets
+const cover = computed(() =>
+  /^(https?:|blob:|\/)/.test(props.trip.image) ? props.trip.image : img(props.trip.image),
+);
 </script>
 
 <template>
   <article class="trip-card">
     <div class="trip-image-wrap">
-      <img class="trip-image" :src="img(trip.image)" :alt="trip.title" />
+    <img class="trip-image" :src="cover" :alt="trip.title" />
       <button class="more-button" type="button" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
         ...
       </button>
