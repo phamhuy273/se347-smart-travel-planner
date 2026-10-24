@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import CreateTripModal from '@/components/trips/CreateTripModal.vue';
+import { getUpcomingTrip } from '@/services/trip.service';
 import {
   Compass,
   Clock,
@@ -46,11 +47,24 @@ const now = ref(new Date());
 let clockInterval: ReturnType<typeof setInterval>;
 const authStore = useAuthStore();
 
-onMounted(() => {
+onMounted(async () => {
   clockInterval = setInterval(() => {
     now.value = new Date();
   }, 1000);
+  await fetchUpcomingTrip();
 });
+
+const fetchUpcomingTrip = async () => {
+  try {
+    const response: any = await getUpcomingTrip();
+    const data = response?.data || response;
+    if (data) {
+      upcomingTrip.value = mapUpcomingTrip(data);
+    }
+  } catch (err) {
+    // Giữ mock data nếu không có chuyến đi sắp tới
+  }
+};
 
 onUnmounted(() => {
   clearInterval(clockInterval);
@@ -156,8 +170,9 @@ const changeMonth = (offset: number) => {
   );
 };
 
-// ─── Mock Data: Upcoming Trip ────────────────────────────────────
-const upcomingTrip = ref({
+// ─── Upcoming Trip (API) ────────────────────────────────────
+const upcomingTrip = ref<any>({
+  id: null,
   title: 'Phú Quốc Luxury 5 sao',
   location: 'Phú Quốc, Việt Nam',
   duration: '5 ngày',
@@ -166,6 +181,34 @@ const upcomingTrip = ref({
   members: 4,
   coverImage: phuQuocCover,
 });
+
+const mapUpcomingTrip = (trip: any) => {
+  const start = trip.start_date ? new Date(trip.start_date) : null;
+  const end = trip.end_date ? new Date(trip.end_date) : null;
+  const formatDate = (d: Date) => d.toLocaleDateString('vi-VN');
+  const dateRange = start && end ? `${formatDate(start)} → ${formatDate(end)}` : trip.dateRange || '';
+  const daysCount = trip.days?.length || trip._count?.days || 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysLeft = start ? Math.max(0, Math.ceil((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))) : trip.daysLeft || 0;
+
+  return {
+    id: trip.id,
+    title: trip.title,
+    location: trip.destination || trip.location || '',
+    duration: daysCount > 0 ? `${daysCount} ngày` : trip.duration || '',
+    dateRange,
+    daysLeft,
+    members: trip.members_count || 1,
+    coverImage: trip.cover_image_url || trip.coverImage || phuQuocCover,
+  };
+};
+
+const openUpcomingTrip = () => {
+  if (upcomingTrip.value.id) {
+    router.push(`/planner/${upcomingTrip.value.id}`);
+  }
+};
 
 // ─── Mock Data: Checklist ────────────────────────────────────────
 const checklist = ref([
@@ -326,7 +369,7 @@ const scrollFeatured = (direction: 'left' | 'right') => {
       <div class="col-span-3 flex flex-col gap-4">
         <!-- 2a. UPCOMING TRIP CARD -->
         <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div class="relative h-40 overflow-hidden">
+          <div class="relative h-40 overflow-hidden cursor-pointer" @click="openUpcomingTrip">
             <img
               :src="upcomingTrip.coverImage"
               :alt="upcomingTrip.title"
@@ -341,6 +384,7 @@ const scrollFeatured = (direction: 'left' | 'right') => {
             </span>
             <!-- Days left badge -->
             <div
+              v-if="upcomingTrip.daysLeft !== undefined && upcomingTrip.daysLeft !== null"
               class="absolute top-2 right-3 bg-slate-800/80 backdrop-blur-sm rounded-lg px-2.5 py-1 text-center shadow-sm"
             >
               <span class="text-amber-300 font-extrabold text-base leading-none block">{{ upcomingTrip.daysLeft }}</span>
@@ -376,6 +420,7 @@ const scrollFeatured = (direction: 'left' | 'right') => {
               </div>
               <button
                 class="px-4 py-1.5 border border-slate-200 text-slate-600 text-xs font-semibold rounded-full hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+                @click="openUpcomingTrip"
               >
                 Mở lịch trình →
               </button>
