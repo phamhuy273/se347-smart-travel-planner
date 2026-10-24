@@ -70,8 +70,13 @@ const onFileChange = (event: Event) => {
 };
 
 const errorMessage = (error: unknown, fallback: string) => {
-  const e = error as { message?: string; error?: string };
-  return e?.message || e?.error || fallback;
+  const e = error as any;
+  if (e?.message) {
+    if (Array.isArray(e.message)) return e.message[0];
+    return e.message;
+  }
+  if (e?.error) return e.error;
+  return fallback;
 };
 
 const submitTrip = async () => {
@@ -79,41 +84,46 @@ const submitTrip = async () => {
   submitting.value = true;
   formError.value = '';
 
-  const formData = new FormData();
-  formData.set('title', title.value);
-  formData.set('destination', destination.value);
-  formData.set('description', description.value);
-  formData.set('startDate', startDate.value);
-  formData.set('endDate', endDate.value);
-  if (coverFile.value) formData.set('coverFile', coverFile.value);
-
   try {
-    // Dữ liệu giả, xoá khi có API thật
-    const { trip } = {
-      trip: {
-        title: title.value,
-        destination: destination.value,
-        startDate: startDate.value,
-        endDate: endDate.value,
-        dayCount: days.value.length,
-        coverURL: coverPreview.value,
-      },
+    const payload: any = {
+      title: title.value.trim(),
+      destination: destination.value.trim(),
+      start_date: startDate.value,
+      end_date: endDate.value,
     };
 
-    const start = formatTripDate(trip.startDate.slice(0, 10)).slice(0, 5);
-    const end = formatTripDate(trip.endDate.slice(0, 10)).slice(0, 5);
+    if (description.value.trim()) payload.description = description.value.trim();
+    if (coverPreview.value && !coverPreview.value.startsWith('blob:')) {
+      payload.cover_image_url = coverPreview.value;
+    }
+    // Nếu có file ảnh, không gửi multipart (backend chưa hỗ trợ) - chỉ dùng preview nếu là URL
+    // Nếu cần upload, sẽ cần thêm endpoint upload riêng
 
-    keepPreview = Boolean(trip.coverURL); // giữ link blob cho thẻ mới
+    const response: any = await createTrip(payload);
+    const created = response?.data || response;
+
+    const start = formatTripDate(startDate.value).slice(0, 5);
+    const end = formatTripDate(endDate.value).slice(0, 5);
+
+    keepPreview = Boolean(coverPreview.value);
     emit('created', {
-      title: trip.title,
+      id: created?.id,
+      title: created?.title || title.value,
       dates: `${start} - ${end}`,
-      duration: `${trip.dayCount} ngày`,
+      duration: `${days.value.length} ngày`,
       members: 1,
-      location: trip.destination,
+      location: created?.destination || destination.value,
+      destination: created?.destination || destination.value,
       author: authStore.displayName,
-      image: trip.coverURL || 'DaLat.png',
+      owner: authStore.user ? { id: authStore.user.id, full_name: authStore.displayName } : undefined,
+      image: coverPreview.value || created?.cover_image_url || 'DaLat.png',
+      cover_image_url: created?.cover_image_url || (coverPreview.value.startsWith('blob:') ? undefined : coverPreview.value),
       status: 'Đang lên kế hoạch',
       secondary: 'Của tôi',
+      start_date: created?.start_date || startDate.value,
+      end_date: created?.end_date || endDate.value,
+      days: created?.days || [],
+      _count: created?._count,
     });
     emit('close');
   } catch (error) {

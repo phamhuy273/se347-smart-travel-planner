@@ -1,23 +1,79 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import type { Trip } from '@/types/trip';
 
 const props = defineProps<{ trip: Trip }>();
+const emit = defineEmits<{
+  (e: 'view-detail', trip: Trip): void;
+}>();
+const router = useRouter();
 
 const menuOpen = ref(false);
-const img = (name: string) => new URL(`../../assets/my_planner/${name}`, import.meta.url).href;
+const img = (name?: string) => {
+  if (!name) return '';
+  try {
+    return new URL(`../../assets/my_planner/${name}`, import.meta.url).href;
+  } catch {
+    return name;
+  }
+};
 
 // URL đầy đủ (http, blob, /...) dùng thẳng; tên file thì lấy từ assets
-const cover = computed(() =>
-  /^(https?:|blob:|\/)/.test(props.trip.image) ? props.trip.image : img(props.trip.image),
-);
+const cover = computed(() => {
+  const source = props.trip.cover_image_url || props.trip.image;
+  if (!source) return '';
+  if (/^(https?:|blob:|\/)/.test(source)) return source;
+  return img(source);
+});
+
+const displayLocation = computed(() => props.trip.destination || props.trip.location || '');
+const displayAuthor = computed(() => props.trip.author || props.trip.owner?.full_name || 'Người dùng');
+
+const formatDate = (d?: string) => {
+  if (!d) return '';
+  try {
+    const date = new Date(d);
+    return date.toLocaleDateString('vi-VN');
+  } catch {
+    return d;
+  }
+};
+
+const dateRange = computed(() => {
+  if (props.trip.dates) return props.trip.dates;
+  if (props.trip.start_date && props.trip.end_date) {
+    return `${formatDate(props.trip.start_date)} - ${formatDate(props.trip.end_date)}`;
+  }
+  return '';
+});
+
+const duration = computed(() => {
+  if (props.trip.duration) return props.trip.duration;
+  if (props.trip.days && props.trip.days.length > 0) {
+    return `${props.trip.days.length} ngày`;
+  }
+  if (props.trip._count?.days) {
+    return `${props.trip._count.days} ngày`;
+  }
+  return '';
+});
+
+const members = computed(() => props.trip.members ?? 1);
+
+const onViewDetail = () => {
+  if (props.trip.id) {
+    router.push(`/planner/${props.trip.id}`);
+  }
+  emit('view-detail', props.trip);
+};
 </script>
 
 <template>
   <article class="trip-card">
     <div class="trip-image-wrap">
-    <img class="trip-image" :src="cover" :alt="trip.title" />
-      <button class="more-button" type="button" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
+      <img class="trip-image" :src="cover" :alt="trip.title" />
+      <button class="more-button" type="button" :aria-expanded="menuOpen" @click.stop="menuOpen = !menuOpen">
         ...
       </button>
       <div v-if="menuOpen" class="card-menu">
@@ -29,19 +85,19 @@ const cover = computed(() =>
     <div class="trip-content">
       <h2>{{ trip.title }}</h2>
       <div class="trip-facts">
-        <span><img :src="img('icon_calendar.png')" alt="" />{{ trip.dates }} ({{ trip.duration }})</span>
-        <span><img :src="img('icon_members.png')" alt="" />{{ trip.members }} Thành viên</span>
-        <span class="location"><img :src="img('icon_location.svg')" alt="" />{{ trip.location }}</span>
+        <span v-if="dateRange"><img :src="img('icon_calendar.png')" alt="" />{{ dateRange }}<template v-if="duration"> ({{ duration }})</template></span>
+        <span><img :src="img('icon_members.png')" alt="" />{{ members }} Thành viên</span>
+        <span v-if="displayLocation" class="location"><img :src="img('icon_location.svg')" alt="" />{{ displayLocation }}</span>
       </div>
 
-      <p class="author">Bởi {{ trip.author }}</p>
+      <p class="author">Bởi {{ displayAuthor }}</p>
       <div class="tags">
-        <span class="tag blue">{{ trip.status }}</span>
+        <span v-if="trip.status" class="tag blue">{{ trip.status }}</span>
         <span v-if="trip.secondary" class="tag" :class="trip.secondary === 'Đã lưu' ? 'saved' : 'owned'">
           {{ trip.secondary }}
         </span>
       </div>
-      <button class="detail-button" type="button">Xem chi tiết</button>
+      <button class="detail-button" type="button" @click="onViewDetail">Xem chi tiết</button>
     </div>
   </article>
 </template>

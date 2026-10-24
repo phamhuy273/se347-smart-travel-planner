@@ -1,30 +1,86 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import TripCard from '@/components/trips/TripCard.vue';
 import CreateTripModal from '@/components/trips/CreateTripModal.vue';
 import type { Trip } from '@/types/trip';
+import { getTrips } from '@/services/trip.service';
+import { useAuthStore } from '@/stores/auth.store';
 
 const img = (name: string) => new URL(`../../assets/my_planner/${name}`, import.meta.url).href;
 
-const tabs = ['Tất cả (8)', 'Của tôi (3)', 'Đã lưu (5)'];
-const activeTab = ref('Của tôi (3)');
+const authStore = useAuthStore();
+
+const tabs = ['Tất cả', 'Của tôi', 'Đã lưu'];
+const activeTab = ref('Của tôi');
 const query = ref('');
 const createModalOpen = ref(false);
+const tripList = ref<Trip[]>([]);
+const loading = ref(false);
+const error = ref('');
 
-// MOCKUP DATA
-const tripList = ref<Trip[]>([
-  { title: 'Đà Lạt chill', dates: '10/06 - 13/06', duration: '4 ngày', members: 3, location: 'Đà Lạt, Lâm Đồng', author: 'Pham Huy', image: 'DaLat.png', status: 'Đang lên kế hoạch', secondary: 'Của tôi' },
-  { title: 'Sapa mờ sương', dates: '10/10 - 25/10', duration: '16 ngày', members: 5, location: 'Sapa', author: 'Bich Ngoc', image: 'Sapa.png', status: 'Sắp tới', secondary: 'Đã lưu' },
-  { title: 'Khám phá Ninh Bình', dates: '15/03 - 18/03', duration: '4 ngày', members: 2, location: 'Ninh Bình', author: 'Pham Huy', image: 'NinhBinh.png', status: 'Đang lên kế hoạch', secondary: 'Của tôi' },
-]);
+const mapTripFromApi = (t: any): Trip => {
+  const ownerName = t.owner?.full_name || authStore.displayName;
+  const start = t.start_date ? new Date(t.start_date) : null;
+  const end = t.end_date ? new Date(t.end_date) : null;
+  const formatDate = (d: Date) => d.toLocaleDateString('vi-VN');
+  const dates = start && end ? `${formatDate(start)} - ${formatDate(end)}` : t.dates || '';
+  const daysCount = t._count?.days || t.days?.length || 0;
+  const isOwner = authStore.user?.id && t.owner_id === authStore.user.id;
+
+  return {
+    id: t.id,
+    title: t.title,
+    dates,
+    duration: daysCount > 0 ? `${daysCount} ngày` : t.duration,
+    members: t.members_count || 1,
+    location: t.destination || t.location,
+    destination: t.destination,
+    author: ownerName,
+    owner: t.owner,
+    image: t.cover_image_url || t.image || 'DaLat.png',
+    cover_image_url: t.cover_image_url,
+    status: 'Đang lên kế hoạch',
+    secondary: isOwner ? 'Của tôi' : t.bookmarked || t.is_bookmarked ? 'Đã lưu' : undefined,
+    start_date: t.start_date,
+    end_date: t.end_date,
+    days: t.days,
+    _count: t._count,
+  };
+};
+
+const fetchTrips = async () => {
+  loading.value = true;
+  error.value = '';
+  try {
+    const tabMap: Record<string, string> = {
+      'Tất cả': 'all',
+      'Của tôi': 'mine',
+      'Đã lưu': 'saved',
+    };
+    const response: any = await getTrips({ tab: tabMap[activeTab.value] });
+    const data = response?.data || response;
+    const list = Array.isArray(data) ? data : data?.trips || [];
+    tripList.value = list.map((t: any) => mapTripFromApi(t));
+  } catch (err: any) {
+    error.value = err?.message || 'Không thể tải danh sách chuyến đi';
+  } finally {
+    loading.value = false;
+  }
+};
+
+onMounted(() => {
+  fetchTrips();
+});
 
 const visibleTrips = computed(() => {
   const q = query.value.trim().toLocaleLowerCase('vi');
+  if (!q) return tripList.value;
   return tripList.value.filter((t) => t.title.toLocaleLowerCase('vi').includes(q));
 });
 
 const onTripCreated = (trip: Trip) => {
   tripList.value.unshift(trip);
+  fetchTrips().catch(() => {});
 };
 </script>
 
@@ -48,7 +104,7 @@ const onTripCreated = (trip: Trip) => {
         role="tab"
         :class="{ active: activeTab === tab }"
         :aria-selected="activeTab === tab"
-        @click="activeTab = tab"
+        @click="activeTab = tab; fetchTrips()"
       >
         {{ tab }}
       </button>
@@ -59,8 +115,10 @@ const onTripCreated = (trip: Trip) => {
     </div>
 
     <div class="trip-grid">
-      <TripCard v-for="trip in visibleTrips" :key="trip.title" :trip="trip" />
-      <p v-if="visibleTrips.length === 0" class="empty-state">Không tìm thấy chuyến đi phù hợp.</p>
+      <TripCard v-for="trip in visibleTrips" :key="trip.id || trip.title" :trip="trip" />
+      <p v-if="loading" class="empty-state">Đang tải...</p>
+      <p v-else-if="error" class="empty-state">{{ error }}</p>
+      <p v-else-if="visibleTrips.length === 0" class="empty-state">Không tìm thấy chuyến đi phù hợp.</p>
     </div>
     
     <button
