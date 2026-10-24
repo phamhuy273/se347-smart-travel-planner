@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
+import CreateTripModal from '@/components/trips/CreateTripModal.vue';
 import {
   Compass,
   Clock,
@@ -26,6 +28,18 @@ import baliImage from '@/assets/trips/bali.jpg';
 import coastalEscapeImage from '@/assets/trips/coastal-escape.jpg';
 import haGiangImage from '@/assets/trips/ha-giang.jpg';
 import hoiAnImage from '@/assets/trips/hoi-an.jpg';
+
+const router = useRouter();
+const createTripModalOpen = ref(false);
+
+const openCreateTripModal = () => {
+  createTripModalOpen.value = true;
+};
+
+const onTripCreated = () => {
+  createTripModalOpen.value = false;
+  router.push('/trips');
+};
 
 // ─── Clock & Date ────────────────────────────────────────────────
 const now = ref(new Date());
@@ -413,7 +427,7 @@ const scrollFeatured = (direction: 'left' | 'right') => {
           <!-- Create new trip button -->
           <button
             class="mt-5 w-full flex items-center justify-center gap-2 py-2.5 bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-bold rounded-full transition-all duration-200 shadow-sm active:scale-[0.98]"
-            @click="$router.push('/trips')"
+            @click="openCreateTripModal"
           >
             <Plus class="w-3.5 h-3.5" />
             Tạo chuyến đi mới
@@ -677,6 +691,8 @@ const scrollFeatured = (direction: 'left' | 'right') => {
       </div>
     </div>
   </div>
+
+  <CreateTripModal v-if="createTripModalOpen" @close="createTripModalOpen = false" @created="onTripCreated" />
 </template>
 
 <style scoped>
