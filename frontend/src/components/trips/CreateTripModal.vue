@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useAuthStore } from '@/stores/auth.store';
-import { createTrip } from '@/services/trip.service';
+import { useActivityStore } from '@/stores/activity.store';
+import { createTrip, uploadImage } from '@/services/trip.service';
+import { goongService } from '@/services/goong.service';
+import { useDebounce } from '@/composables/useDebounce';
 import { formatTripDate, getTripDays } from '@/utils/trip-date';
 import type { Trip } from '@/types/trip';
 
@@ -11,6 +14,7 @@ const emit = defineEmits<{
 }>();
 
 const authStore = useAuthStore();
+const activityStore = useActivityStore();
 const img = (name: string) => new URL(`../../assets/my_planner/${name}`, import.meta.url).href;
 
 let keepPreview = false;
@@ -21,9 +25,46 @@ const startDate = ref('');
 const endDate = ref('');
 const coverFile = ref<File | null>(null);
 const coverPreview = ref('');
+const isUploadingCover = ref(false);
 const submitting = ref(false);
 const formError = ref('');
 const titleInput = ref<HTMLInputElement | null>(null);
+
+// Destination Autocomplete
+const destinationSuggestions = ref<Array<{ id: string; name: string; description: string; placeId?: string; lat?: number; lng?: number }>>([]);
+const isSearchingDestination = ref(false);
+const showDestinationDropdown = ref(false);
+const debouncedDestination = useDebounce(destination, 250);
+
+watch(debouncedDestination, async (val) => {
+  const query = val?.trim() || '';
+  if (query.length < 2) {
+    destinationSuggestions.value = [];
+    showDestinationDropdown.value = false;
+    return;
+  }
+  isSearchingDestination.value = true;
+  try {
+    const results = await goongService.searchDestinations(query);
+    destinationSuggestions.value = results;
+    showDestinationDropdown.value = results.length > 0;
+  } catch {
+    destinationSuggestions.value = [];
+  } finally {
+    isSearchingDestination.value = false;
+  }
+});
+
+const selectDestination = (item: { name: string; description: string }) => {
+  destination.value = item.name;
+  showDestinationDropdown.value = false;
+};
+
+const hideDropdown = () => {
+  setTimeout(() => {
+    showDestinationDropdown.value = false;
+  }, 200);
+};
 
 const days = computed(() => getTripDays(startDate.value, endDate.value));
 const canSubmit = computed(() => Boolean(title.value.trim() && destination.value.trim() && days.value.length > 0));
@@ -56,7 +97,7 @@ onBeforeUnmount(() => {
   if (!keepPreview) revokePreview();
 });
 
-const onFileChange = (event: Event) => {
+const onFileChange = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file) return;
   if (file.size > 10 * 1024 * 1024) {
@@ -67,6 +108,21 @@ const onFileChange = (event: Event) => {
   coverFile.value = file;
   coverPreview.value = URL.createObjectURL(file);
   formError.value = '';
+
+  // Tự động tải ảnh lên Cloudinary
+  isUploadingCover.value = true;
+  try {
+    const url = await uploadImage(file);
+    if (url) {
+      revokePreview();
+      coverPreview.value = url;
+    }
+  } catch (err: any) {
+    console.error('Lỗi khi tải ảnh:', err);
+    formError.value = 'Không thể tải ảnh lên: ' + errorMessage(err, 'Lỗi kết nối máy chủ');
+  } finally {
+    isUploadingCover.value = false;
+  }
 };
 
 const errorMessage = (error: unknown, fallback: string) => {
@@ -80,11 +136,24 @@ const errorMessage = (error: unknown, fallback: string) => {
 };
 
 const submitTrip = async () => {
-  if (!canSubmit.value || submitting.value) return;
+  if (!canSubmit.value || submitting.value || isUploadingCover.value) return;
   submitting.value = true;
   formError.value = '';
 
   try {
+    let finalCoverUrl = '';
+
+    // Nếu ảnh vẫn là blob (chưa upload xong) và có file, thực hiện upload trước
+    if (coverPreview.value.startsWith('blob:') && coverFile.value) {
+      try {
+        finalCoverUrl = await uploadImage(coverFile.value);
+      } catch (err) {
+        console.warn('Lỗi tải ảnh:', err);
+      }
+    } else if (coverPreview.value && !coverPreview.value.startsWith('blob:')) {
+      finalCoverUrl = coverPreview.value;
+    }
+
     const payload: any = {
       title: title.value.trim(),
       destination: destination.value.trim(),
@@ -93,11 +162,9 @@ const submitTrip = async () => {
     };
 
     if (description.value.trim()) payload.description = description.value.trim();
-    if (coverPreview.value && !coverPreview.value.startsWith('blob:')) {
-      payload.cover_image_url = coverPreview.value;
+    if (finalCoverUrl) {
+      payload.cover_image_url = finalCoverUrl;
     }
-    // Nếu có file ảnh, không gửi multipart (backend chưa hỗ trợ) - chỉ dùng preview nếu là URL
-    // Nếu cần upload, sẽ cần thêm endpoint upload riêng
 
     const response: any = await createTrip(payload);
     const created = response?.data || response;
@@ -105,7 +172,11 @@ const submitTrip = async () => {
     const start = formatTripDate(startDate.value).slice(0, 5);
     const end = formatTripDate(endDate.value).slice(0, 5);
 
-    keepPreview = Boolean(coverPreview.value);
+    keepPreview = Boolean(finalCoverUrl);
+    activityStore.addActivity({
+      type: 'CREATE_TRIP',
+      text: `Bạn vừa tạo chuyến đi "${created?.title || title.value}"`,
+    });
     emit('created', {
       id: created?.id,
       title: created?.title || title.value,
@@ -116,8 +187,8 @@ const submitTrip = async () => {
       destination: created?.destination || destination.value,
       author: authStore.displayName,
       owner: authStore.user ? { id: authStore.user.id, full_name: authStore.displayName } : undefined,
-      image: coverPreview.value || created?.cover_image_url || 'DaLat.png',
-      cover_image_url: created?.cover_image_url || (coverPreview.value.startsWith('blob:') ? undefined : coverPreview.value),
+      image: created?.cover_image_url || finalCoverUrl || 'DaLat.png',
+      cover_image_url: created?.cover_image_url || finalCoverUrl || undefined,
       status: 'Đang lên kế hoạch',
       secondary: 'Của tôi',
       start_date: created?.start_date || startDate.value,
@@ -153,13 +224,41 @@ const submitTrip = async () => {
             <small class="character-count">{{ title.length }}/80</small>
           </label>
 
-          <label class="form-field">
+          <div class="form-field">
             <span>Điểm đến chính <b>*</b></span>
-            <div class="input-with-icon">
-              <img :src="img('icon_location.svg')" alt="" />
-              <input v-model="destination" placeholder="Tìm thành phố hoặc quốc gia..." required />
+            <div class="destination-container">
+              <div class="input-with-icon">
+                <img :src="img('icon_location.svg')" alt="" />
+                <input
+                  v-model="destination"
+                  placeholder="Tìm thành phố hoặc quốc gia..."
+                  required
+                  autocomplete="off"
+                  @focus="showDestinationDropdown = destinationSuggestions.length > 0"
+                  @blur="hideDropdown"
+                />
+              </div>
+
+              <!-- Autocomplete Dropdown List -->
+              <div
+                v-if="showDestinationDropdown && destinationSuggestions.length > 0"
+                class="autocomplete-dropdown"
+              >
+                <div
+                  v-for="item in destinationSuggestions"
+                  :key="item.id"
+                  class="autocomplete-item"
+                  @mousedown.prevent="selectDestination(item)"
+                >
+                  <img :src="img('icon_location.svg')" class="autocomplete-icon" alt="" />
+                  <div class="autocomplete-text">
+                    <div class="autocomplete-name">{{ item.name }}</div>
+                    <div class="autocomplete-desc">{{ item.description }}</div>
+                  </div>
+                </div>
+              </div>
             </div>
-          </label>
+          </div>
 
           <label class="form-field">
             <span>Mô tả ngắn</span>
@@ -175,17 +274,19 @@ const submitTrip = async () => {
 
           <fieldset class="cover-fieldset">
             <legend>Ảnh bìa</legend>
-            <label class="cover-dropzone" :class="{ 'has-preview': coverPreview }">
-                <template v-if="coverPreview">
+            <label class="cover-dropzone" :class="{ 'has-preview': coverPreview, 'is-uploading': isUploadingCover }">
+              <template v-if="coverPreview">
                 <img :src="coverPreview" alt="Ảnh bìa xem trước" />
-                <span class="cover-overlay">Đổi ảnh bìa</span>
-                </template>
-                <div v-else>
-                <span class="upload-symbol" aria-hidden="true">↑</span>
-                <strong>Kéo thả hoặc chọn ảnh từ thiết bị</strong>
+                <span class="cover-overlay">
+                  {{ isUploadingCover ? 'Đang tải lên...' : 'Đổi ảnh bìa' }}
+                </span>
+              </template>
+              <div v-else>
+                <span class="upload-symbol" aria-hidden="true">{{ isUploadingCover ? '⏳' : '↑' }}</span>
+                <strong>{{ isUploadingCover ? 'Đang tải ảnh lên Cloudinary...' : 'Kéo thả hoặc chọn ảnh từ thiết bị' }}</strong>
                 <small>JPG, PNG hoặc WEBP · Tối đa 10MB</small>
-                </div>
-                <input type="file" accept="image/jpeg,image/png,image/webp" @change="onFileChange" />
+              </div>
+              <input type="file" accept="image/jpeg,image/png,image/webp" :disabled="isUploadingCover" @change="onFileChange" />
             </label>
           </fieldset>
 
@@ -210,8 +311,7 @@ const submitTrip = async () => {
               <div>
                 <strong>{{ formatTripDate(startDate) }} – {{ formatTripDate(endDate) }}</strong>
                 <p>
-                  Chuyến đi kéo dài {{ days.length }} ngày. Hệ thống sẽ tạo sẵn {{ days.length }} ngày trong lịch
-                  trình.
+                  Chuyến đi kéo dài {{ days.length }} ngày. Hệ thống sẽ tạo sẵn {{ days.length }} ngày trong lịch trình.
                 </p>
               </div>
             </div>
@@ -219,7 +319,7 @@ const submitTrip = async () => {
               <span v-for="(day, index) in days.slice(0, 5)" :key="day.toISOString()">
                 Ngày {{ index + 1 }} · {{ dayLabel(day) }}
               </span>
-              <span v-if="days.length > 5" class="more-days">+ {{ days.length - 5 }} ngày khác</span>
+              <span v-if="days.length > 5" class="more-days">+{{ days.length - 5 }} ngày nữa</span>
             </div>
           </div>
 
@@ -227,8 +327,8 @@ const submitTrip = async () => {
 
           <footer class="modal-footer">
             <button class="cancel-button" type="button" @click="emit('close')">Hủy</button>
-            <button class="create-button" type="submit" :disabled="!canSubmit || submitting">
-              {{ submitting ? 'Đang tạo...' : 'Tạo chuyến đi' }}
+            <button class="create-button" type="submit" :disabled="!canSubmit || submitting || isUploadingCover">
+              {{ submitting ? 'Đang tạo...' : isUploadingCover ? 'Đang tải ảnh...' : 'Tạo chuyến đi' }}
             </button>
           </footer>
         </form>
@@ -255,18 +355,67 @@ const submitTrip = async () => {
 .form-field > input:focus, .input-with-icon:focus-within, .date-range input:focus, .trip-description:focus { border-color: #128078; box-shadow: 0 0 0 3px rgb(107 195 242 / 24%); }
 .form-field input::placeholder, .form-field textarea::placeholder { color: #90978c; }
 .character-count { position: absolute; right: 13px; bottom: 15px; color: #90978c; font-size: 11px; }
+
+.destination-container { position: relative; width: 100%; }
 .input-with-icon { display: flex; align-items: center; padding: 0 14px; }
-.input-with-icon img { width: 21px; height: 21px; margin-right: 8px; }
-.input-with-icon input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; }
+.input-with-icon img { width: 21px; height: 21px; margin-right: 8px; flex-shrink: 0; }
+.input-with-icon input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; height: 100%; font-size: 14px; color: #152d3a; }
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid rgb(107 195 242 / 45%);
+  border-radius: 14px;
+  box-shadow: 0 12px 30px rgba(4, 59, 92, 0.16);
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 60;
+  padding: 6px;
+}
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.autocomplete-item:hover {
+  background: rgb(107 195 242 / 14%);
+}
+.autocomplete-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.autocomplete-text {
+  min-width: 0;
+  flex: 1;
+}
+.autocomplete-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #043b5c;
+}
+.autocomplete-desc {
+  font-size: 11px;
+  color: #757d6f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .trip-description { width: 100%; min-height: 82px; resize: vertical; border: 1px solid rgb(117 125 111 / 32%); border-radius: 13px; background: white; color: #152d3a; padding: 12px 15px 25px; font-size: 14px; outline: 0; }
 .description-count { position: absolute; right: 13px; bottom: 9px; color: #90978c; font-size: 11px; }
 
 .cover-fieldset, .date-fieldset { min-width: 0; margin: 0 0 20px; border: 0; padding: 0; }
-.cover-tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 12px; background: rgb(107 195 242 / 14%); }
-.cover-tabs button { height: 34px; border: 0; border-radius: 9px; padding: 0 14px; background: transparent; color: #62746d; font-size: 12px; font-weight: 500; cursor: pointer; }
-.cover-tabs button.active { background: white; color: #0a5954; box-shadow: 0 2px 6px rgb(4 59 92 / 12%); }
-.cover-dropzone { position: relative; display: grid; width: 100%; height: 170px; margin-top: 10px; overflow: hidden; place-items: center; border: 1.5px dashed rgb(18 128 120 / 52%); border-radius: 15px; background: rgb(107 195 242 / 8%); cursor: pointer; }
+.cover-dropzone { position: relative; display: grid; width: 100%; height: 170px; margin-top: 10px; overflow: hidden; place-items: center; border: 1.5px dashed rgb(18 128 120 / 52%); border-radius: 15px; background: rgb(107 195 242 / 8%); cursor: pointer; transition: opacity 150ms ease; }
+.cover-dropzone.is-uploading { opacity: 0.7; cursor: wait; }
 .cover-dropzone > div { display: flex; align-items: center; flex-direction: column; gap: 5px; color: #245766; text-align: center; }
 .cover-dropzone strong { font-size: 13px; font-weight: 600; }
 .cover-dropzone small { color: #75847d; font-size: 11px; }
@@ -275,18 +424,6 @@ const submitTrip = async () => {
 .cover-dropzone.has-preview { border-style: solid; }
 .cover-dropzone > img { width: 100%; height: 100%; object-fit: cover; }
 .cover-overlay { position: absolute; right: 12px; bottom: 12px; border-radius: 9px; background: rgb(255 255 255 / 92%); color: #0a5954; padding: 7px 11px; font-size: 11px; font-weight: 600; box-shadow: 0 2px 8px rgb(0 0 0 / 18%); }
-
-.unsplash-picker { margin-top: 10px; }
-.unsplash-search { display: flex; height: 43px; overflow: hidden; border: 1px solid rgb(117 125 111 / 32%); border-radius: 12px; background: white; }
-.unsplash-search input { min-width: 0; flex: 1; border: 0; outline: 0; padding: 0 13px; font-size: 13px; }
-.unsplash-search button { border: 0; background: #128078; color: white; padding: 0 17px; font-size: 12px; font-weight: 600; cursor: pointer; }
-.unsplash-search button:disabled { background: #88aaa6; }
-.unsplash-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
-.unsplash-grid button { position: relative; height: 105px; overflow: hidden; border: 2px solid transparent; border-radius: 11px; padding: 0; background: #dce9e9; cursor: pointer; }
-.unsplash-grid button.selected { border-color: #128078; box-shadow: 0 0 0 2px rgb(107 195 242 / 38%); }
-.unsplash-grid img { width: 100%; height: 100%; object-fit: cover; }
-.unsplash-grid span { position: absolute; right: 0; bottom: 0; left: 0; overflow: hidden; background: linear-gradient(transparent, rgb(0 0 0 / 72%)); color: white; padding: 19px 5px 5px; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.unsplash-hint { margin: 14px 0 2px; color: #75847d; font-size: 12px; text-align: center; }
 
 .date-range { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: end; gap: 13px; }
 .date-range label > span { display: block; margin-bottom: 7px; color: #757d6f; font-size: 12px; }
@@ -327,6 +464,5 @@ const submitTrip = async () => {
 }
 @media (max-width: 600px) {
   .cover-dropzone { height: 145px; }
-  .unsplash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

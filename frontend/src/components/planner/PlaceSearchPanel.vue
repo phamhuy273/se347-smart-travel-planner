@@ -13,8 +13,7 @@ import {
   Loader2,
   Sparkles,
   Check,
-  ChevronDown,
-  Info,
+  Compass,
 } from 'lucide-vue-next';
 import { usePlannerStore } from '@/stores/plannerStore';
 import { useDebounce } from '@/composables/useDebounce';
@@ -31,6 +30,34 @@ const isSearching = ref(false);
 const isFocused = ref(false);
 const activeCategoryFilter = ref<PlaceCategory | 'ALL'>('ALL');
 const recentlyAddedId = ref<string | null>(null);
+
+// Destination / Nearby Recommendations
+const nearbySuggestions = ref<SearchPlaceResult[]>([]);
+const isLoadingNearby = ref(false);
+
+const loadNearbyPlaces = async (destinationName: string) => {
+  const dest = destinationName?.trim();
+  if (!dest) return;
+  isLoadingNearby.value = true;
+  try {
+    const places = await goongService.searchPlaces(dest);
+    nearbySuggestions.value = places.slice(0, 6);
+  } catch {
+    nearbySuggestions.value = [];
+  } finally {
+    isLoadingNearby.value = false;
+  }
+};
+
+watch(
+  () => plannerStore.tripDestination,
+  (newDest) => {
+    if (newDest) {
+      loadNearbyPlaces(newDest);
+    }
+  },
+  { immediate: true }
+);
 
 // In-Memory Search Cache for instantaneous response
 const searchCache = new Map<string, SearchPlaceResult[]>();
@@ -112,7 +139,7 @@ const handleAddSearchPlace = async (res: SearchPlaceResult, targetDayId: string 
   let photos = res.photos;
   let tips = res.tips;
 
-  // Nếu là địa điểm từ Goong mà chưa có toạ độ thực tế (đang là 16.06 / 108.22), lấy chi tiết toạ độ
+  // Lấy chi tiết toạ độ nếu là Goong place
   if (res.fsqId && lat === 16.06 && lng === 108.22) {
     try {
       const details = await goongService.getPlaceDetails(res);
@@ -124,7 +151,7 @@ const handleAddSearchPlace = async (res: SearchPlaceResult, targetDayId: string 
       if (details.photos) photos = details.photos;
       if (details.tips) tips = details.tips;
     } catch {
-      // ignore fallback
+      // ignore
     }
   }
 
@@ -210,7 +237,7 @@ const onUnassignedDragChange = (evt: any) => {
         </div>
       </div>
 
-      <!-- Quick Filter Chips (Wanderlog Quality) -->
+      <!-- Quick Filter Chips -->
       <div class="flex items-center gap-1 mt-2.5 overflow-x-auto no-scrollbar pb-0.5">
         <button
           type="button"
@@ -265,7 +292,7 @@ const onUnassignedDragChange = (evt: any) => {
         </button>
       </div>
 
-      <!-- Autocomplete Dropdown Results -->
+      <!-- Autocomplete Search Dropdown Results -->
       <div
         v-if="searchQuery && filteredSearchResults.length > 0"
         class="mt-2.5 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 space-y-1.5 max-h-72 overflow-y-auto"
@@ -276,7 +303,6 @@ const onUnassignedDragChange = (evt: any) => {
           class="p-2 rounded-xl hover:bg-slate-50 flex items-center justify-between cursor-pointer group transition gap-2 border border-transparent hover:border-slate-200/60"
           @click="handlePreviewPlace(res)"
         >
-          <!-- Thumbnail & Info -->
           <div class="flex items-center gap-2.5 min-w-0 flex-1">
             <img
               v-if="res.thumbnailUrl"
@@ -299,12 +325,6 @@ const onUnassignedDragChange = (evt: any) => {
                 >
                   ★ {{ res.rating }}
                 </span>
-                <span
-                  v-if="res.description?.includes('Goong.io') || (!res.id.startsWith('curated-') && !res.id.startsWith('osm-'))"
-                  class="px-1.5 py-0.2 rounded bg-blue-50 text-blue-600 border border-blue-200/60 font-bold text-[8px] flex-shrink-0"
-                >
-                  Goong
-                </span>
               </div>
               <p class="text-[10px] text-slate-400 truncate mt-0.5">
                 {{ res.formattedAddress }}
@@ -312,7 +332,6 @@ const onUnassignedDragChange = (evt: any) => {
             </div>
           </div>
 
-          <!-- Add Button with Success State -->
           <div class="flex items-center gap-1 flex-shrink-0">
             <button
               v-if="recentlyAddedId === res.id"
@@ -349,7 +368,7 @@ const onUnassignedDragChange = (evt: any) => {
             handleAddSearchPlace({
               id: `custom-${Date.now()}`,
               placeName: searchQuery,
-              formattedAddress: 'Đà Nẵng, Việt Nam',
+              formattedAddress: plannerStore.tripDestination || 'Việt Nam',
               latitude: 16.06,
               longitude: 108.22,
               category: 'OTHER',
@@ -358,6 +377,69 @@ const onUnassignedDragChange = (evt: any) => {
         >
           + Thêm "{{ searchQuery }}" vào kho tạm
         </button>
+      </div>
+
+      <!-- Nearby / Curated Suggestions for Destination (shown when searchQuery is empty) -->
+      <div v-if="!searchQuery && nearbySuggestions.length > 0" class="mt-3">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[11px] font-black text-slate-800 flex items-center gap-1">
+            <Compass class="w-3.5 h-3.5 text-brand-blue" />
+            Gợi ý tại {{ plannerStore.tripDestination || 'điểm đến' }}
+          </span>
+          <span class="text-[10px] text-slate-400 font-semibold">{{ nearbySuggestions.length }} địa điểm</span>
+        </div>
+
+        <div class="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+          <div
+            v-for="res in nearbySuggestions"
+            :key="res.id"
+            class="p-2 rounded-xl bg-slate-50 hover:bg-blue-50/50 flex items-center justify-between cursor-pointer group transition gap-2 border border-slate-100 hover:border-blue-200"
+            @click="handlePreviewPlace(res)"
+          >
+            <div class="flex items-center gap-2 min-w-0 flex-1">
+              <img
+                v-if="res.thumbnailUrl"
+                :src="res.thumbnailUrl"
+                :alt="res.placeName"
+                class="w-8 h-8 rounded-lg object-cover border border-slate-200 flex-shrink-0"
+              />
+              <div v-else class="w-8 h-8 rounded-lg bg-blue-100 text-brand-blue flex items-center justify-center flex-shrink-0">
+                <MapPin class="w-3.5 h-3.5" />
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1">
+                  <p class="text-[11px] font-bold text-slate-800 truncate group-hover:text-brand-blue">
+                    {{ res.placeName }}
+                  </p>
+                  <span v-if="res.rating" class="text-[9px] font-bold text-amber-700 bg-amber-50 px-1 rounded flex-shrink-0">
+                    ★{{ res.rating }}
+                  </span>
+                </div>
+                <p class="text-[9px] text-slate-400 truncate">{{ res.formattedAddress }}</p>
+              </div>
+            </div>
+
+            <!-- Add button -->
+            <button
+              v-if="recentlyAddedId === res.id"
+              type="button"
+              class="px-2 py-1 rounded-lg bg-emerald-500 text-white text-[10px] font-bold flex items-center gap-0.5 flex-shrink-0"
+            >
+              <Check class="w-3 h-3" />
+              <span>Đã thêm</span>
+            </button>
+            <button
+              v-else
+              type="button"
+              class="p-1 rounded-lg bg-white border border-slate-200 group-hover:bg-brand-blue group-hover:text-white text-slate-600 transition flex-shrink-0 shadow-2xs"
+              title="Thêm vào kho lưu tạm"
+              @click.stop="handleAddSearchPlace(res, null)"
+            >
+              <Plus class="w-3 h-3" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 

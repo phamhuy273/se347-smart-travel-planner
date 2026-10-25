@@ -7,6 +7,7 @@ import {
 import { Prisma, TripVisibility } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTripDto } from './dto/create-trip.dto';
+import { UpdateTripDto } from './dto/update-trip.dto';
 import { GetTripsQueryDto, TripTab } from './dto/get-trips-query.dto';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -164,8 +165,63 @@ export class TripsService {
     });
   }
 
+  async update(userId: string, tripId: string, dto: UpdateTripDto) {
+    const trip = await this.prisma.trip.findFirst({
+      where: { id: tripId, is_deleted: false },
+    });
+
+    if (!trip) {
+      throw new NotFoundException('Không tìm thấy chuyến đi');
+    }
+
+    if (trip.owner_id !== userId) {
+      throw new ForbiddenException('Chỉ chủ sở hữu mới có quyền chỉnh sửa chuyến đi này');
+    }
+
+    const data: Prisma.TripUpdateInput = {};
+
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.destination !== undefined) data.destination = dto.destination;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.cover_image_url !== undefined) data.cover_image_url = dto.cover_image_url;
+    if (dto.visibility !== undefined) data.visibility = dto.visibility;
+    if (dto.start_date !== undefined) data.start_date = this.parseDate(dto.start_date, 'Ngày bắt đầu');
+    if (dto.end_date !== undefined) data.end_date = this.parseDate(dto.end_date, 'Ngày kết thúc');
+
+    return this.prisma.trip.update({
+      where: { id: tripId },
+      data,
+    });
+  }
+
+  async remove(userId: string, tripId: string) {
+    const trip = await this.prisma.trip.findFirst({
+      where: { id: tripId, is_deleted: false },
+    });
+
+    if (!trip) {
+      throw new NotFoundException('Không tìm thấy chuyến đi');
+    }
+
+    if (trip.owner_id !== userId) {
+      throw new ForbiddenException('Chỉ chủ sở hữu mới có quyền xóa chuyến đi này');
+    }
+
+    await this.prisma.trip.update({
+      where: { id: tripId },
+      data: { is_deleted: true },
+    });
+
+    return {
+      id: tripId,
+      deleted: true,
+      message: 'Xóa chuyến đi thành công',
+    };
+  }
+
   private parseDate(value: string, label: string): Date {
-    const date = new Date(`${value}T00:00:00.000Z`);
+    const rawDate = value && value.includes('T') ? value.split('T')[0] : value;
+    const date = new Date(`${rawDate}T00:00:00.000Z`);
 
     if (Number.isNaN(date.getTime())) {
       throw new BadRequestException(`${label} không hợp lệ`);

@@ -8,6 +8,7 @@ describe('AuthService', () => {
     user: {
       findUnique: vi.fn(),
       create: vi.fn(),
+      update: vi.fn(),
     },
   };
 
@@ -17,8 +18,12 @@ describe('AuthService', () => {
 
   const service = new AuthService(mockPrisma as any, mockJwt as any);
 
-  it('should throw ConflictException if registering with existing email', async () => {
-    mockPrisma.user.findUnique.mockResolvedValueOnce({ id: '1', email: 'existing@test.com' });
+  it('should throw ConflictException if registering with existing verified email', async () => {
+    mockPrisma.user.findUnique.mockResolvedValueOnce({
+      id: '1',
+      email: 'existing@test.com',
+      is_verified: true,
+    });
 
     await expect(
       service.register({
@@ -29,12 +34,34 @@ describe('AuthService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
+  it('should update and resend verification email if registering with unverified email', async () => {
+    mockPrisma.user.findUnique.mockResolvedValueOnce({
+      id: '1',
+      email: 'unverified@test.com',
+      is_verified: false,
+    });
+    mockPrisma.user.update.mockResolvedValueOnce({
+      id: '1',
+      email: 'unverified@test.com',
+    });
+
+    const result = await service.register({
+      email: 'unverified@test.com',
+      password: 'password123',
+      full_name: 'Test Updated',
+    });
+
+    expect(result.requiresVerification).toBe(true);
+    expect(result.email).toBe('unverified@test.com');
+  });
+
   it('should throw UnauthorizedException if login password does not match', async () => {
     const hashed = await bcrypt.hash('correct-password', 10);
     mockPrisma.user.findUnique.mockResolvedValueOnce({
       id: '1',
       email: 'user@test.com',
       password_hash: hashed,
+      is_verified: true,
     });
 
     await expect(
@@ -45,13 +72,32 @@ describe('AuthService', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 
-  it('should successfully login and return access token', async () => {
+  it('should throw UnauthorizedException if user email is not verified', async () => {
     const hashed = await bcrypt.hash('secret123', 10);
     mockPrisma.user.findUnique.mockResolvedValueOnce({
       id: 'user-123',
       email: 'user@test.com',
       password_hash: hashed,
       full_name: 'Wanderer',
+      is_verified: false,
+    });
+
+    await expect(
+      service.login({
+        email: 'user@test.com',
+        password: 'secret123',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('should successfully login and return access token when verified', async () => {
+    const hashed = await bcrypt.hash('secret123', 10);
+    mockPrisma.user.findUnique.mockResolvedValueOnce({
+      id: 'user-123',
+      email: 'user@test.com',
+      password_hash: hashed,
+      full_name: 'Wanderer',
+      is_verified: true,
     });
 
     const result = await service.login({

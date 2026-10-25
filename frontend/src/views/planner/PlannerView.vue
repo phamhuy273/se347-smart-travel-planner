@@ -2,7 +2,8 @@
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { usePlannerStore } from '@/stores/plannerStore';
-import { getTripById } from '@/services/trip.service';
+import { getTripById, deleteTrip } from '@/services/trip.service';
+import { placeService } from '@/services/place.service';
 import PlaceSearchPanel from '@/components/planner/PlaceSearchPanel.vue';
 import DayColumn from '@/components/planner/DayColumn.vue';
 import PlannerMap from '@/components/map/PlannerMap.vue';
@@ -18,6 +19,7 @@ import {
   ChevronRight,
   ChevronLeft,
   ArrowLeft,
+  Trash2,
 } from 'lucide-vue-next';
 
 const route = useRoute();
@@ -39,20 +41,37 @@ const formatDate = (d?: string) => {
 
 onMounted(async () => {
   const id = route.params.id as string;
-  if (id && id !== 'demo-trip-1') {
-    try {
-      const response: any = await getTripById(id);
-      const tripData = response?.data || response;
-      if (tripData) {
-        if (tripData.title) plannerStore.tripTitle = tripData.title;
-        if (tripData.destination) tripDestination.value = tripData.destination;
-        if (tripData.start_date && tripData.end_date) {
-          tripDateRange.value = `${formatDate(tripData.start_date)} - ${formatDate(tripData.end_date)}`;
-        }
+  if (!id || id === 'demo-trip-1') {
+    plannerStore.loadDemoData();
+    tripDestination.value = plannerStore.tripDestination;
+    tripDateRange.value = '10/10/2026 - 12/10/2026';
+    return;
+  }
+
+  try {
+    const [tripRes, itineraryRes] = await Promise.allSettled([
+      getTripById(id),
+      placeService.getTripItinerary(id),
+    ]);
+
+    const tripData = tripRes.status === 'fulfilled' ? ((tripRes.value as any)?.data || tripRes.value) : null;
+    const itineraryData = itineraryRes.status === 'fulfilled' ? ((itineraryRes.value as any)?.data || itineraryRes.value) : null;
+
+    if (tripData) {
+      plannerStore.initTrip(tripData, itineraryData);
+      tripDestination.value = tripData.destination || '';
+      if (tripData.start_date && tripData.end_date) {
+        tripDateRange.value = `${formatDate(tripData.start_date)} - ${formatDate(tripData.end_date)}`;
       }
-    } catch {
-      // Mock mode fallback
+    } else if (itineraryData?.trip) {
+      plannerStore.initTrip(itineraryData.trip, itineraryData);
+      tripDestination.value = itineraryData.trip.destination || '';
+      if (itineraryData.trip.start_date && itineraryData.trip.end_date) {
+        tripDateRange.value = `${formatDate(itineraryData.trip.start_date)} - ${formatDate(itineraryData.trip.end_date)}`;
+      }
     }
+  } catch (err) {
+    console.error('Lỗi khi tải dữ liệu chuyến đi:', err);
   }
 });
 
@@ -78,14 +97,31 @@ const toggleMapPanel = () => {
 
 const handleAddDay = () => {
   const nextDayNum = plannerStore.days.length + 1;
-  const newDayId = `day-${nextDayNum}`;
+  const newDayId = `day-${nextDayNum}-${Date.now()}`;
   plannerStore.days.push({
     id: newDayId,
     tripId: plannerStore.tripId,
     dayNumber: nextDayNum,
-    date: `2026-10-${10 + nextDayNum}`,
+    date: new Date().toISOString().slice(0, 10),
     places: [],
   });
+};
+
+const handleDeleteTrip = async () => {
+  const id = plannerStore.tripId;
+  if (!id || id === 'demo-trip-1') {
+    alert('Không thể xóa chuyến đi mẫu.');
+    return;
+  }
+  const isConfirmed = window.confirm(`Bạn có chắc chắn muốn xóa chuyến đi "${plannerStore.tripTitle}" không? Hành động này không thể hoàn tác.`);
+  if (!isConfirmed) return;
+
+  try {
+    await deleteTrip(id);
+    router.push('/trips');
+  } catch (err: any) {
+    alert(err?.message || 'Không thể xóa chuyến đi.');
+  }
 };
 
 // ─── Left Search Panel Resizable Dragging Logic ─────────────────────────────
@@ -213,6 +249,15 @@ const stopDragRight = () => {
         >
           <FileText class="w-3.5 h-3.5" />
           <span class="hidden sm:inline">Xuất PDF</span>
+        </button>
+
+        <button
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs transition border border-red-200"
+          title="Xóa chuyến đi này"
+          @click="handleDeleteTrip"
+        >
+          <Trash2 class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">Xóa chuyến đi</span>
         </button>
 
         <button

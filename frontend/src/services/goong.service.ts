@@ -703,4 +703,157 @@ export const goongService = {
     placeDetailCache.set(placeId, parsedData);
     return parsedData;
   },
+
+  /**
+   * 3. Tìm kiếm gợi ý Điểm đến / Thành phố (Goong AutoComplete + Photon fallback)
+   */
+  async searchDestinations(query: string, signal?: AbortSignal): Promise<Array<{ id: string; name: string; description: string; placeId?: string; lat?: number; lng?: number }>> {
+    const raw = query.trim();
+    if (!raw) return [];
+
+    const isGoongKeyValid = GOONG_API_KEY && GOONG_API_KEY.trim().length > 5 && !GOONG_API_KEY.includes('your_');
+    if (isGoongKeyValid) {
+      try {
+        const res = await axios.get('https://rsapi.goong.io/Place/AutoComplete', {
+          params: {
+            api_key: GOONG_API_KEY,
+            input: raw,
+            limit: 6,
+          },
+          signal,
+        });
+
+        const predictions = res.data?.predictions || [];
+        if (predictions.length > 0) {
+          return predictions.map((pred: any) => ({
+            id: pred.place_id,
+            name: pred.structured_formatting?.main_text || pred.description.split(',')[0],
+            description: pred.description,
+            placeId: pred.place_id,
+          }));
+        }
+      } catch (err: any) {
+        if (axios.isCancel(err) || err.name === 'CanceledError') throw err;
+      }
+    }
+
+    // Photon OSM fallback
+    try {
+      const photonRes = await axios.get('https://photon.komoot.io/api/', {
+        params: { q: raw, limit: 6 },
+        signal,
+      });
+      const features = photonRes.data?.features || [];
+      return features.map((f: any, idx: number) => {
+        const prop = f.properties;
+        const name = prop.name || prop.city || prop.country;
+        const descParts = [prop.district, prop.city, prop.state, prop.country].filter(Boolean);
+        return {
+          id: `dest-${prop.osm_id || idx}`,
+          name,
+          description: descParts.join(', ') || name,
+          lat: f.geometry?.coordinates?.[1],
+          lng: f.geometry?.coordinates?.[0],
+        };
+      });
+    } catch {
+      return [];
+    }
+  },
+
+  /**
+   * 4. Geocode tọa độ của điểm đến / thành phố
+   */
+  async geocodeDestination(destinationName: string): Promise<{ lat: number; lng: number }> {
+    if (!destinationName?.trim()) return { lat: 16.0544, lng: 108.2022 };
+
+    const POPULAR_COORDS: Record<string, { lat: number; lng: number }> = {
+      'da nang': { lat: 16.0544, lng: 108.2022 },
+      'hoi an': { lat: 15.8801, lng: 108.3380 },
+      'da lat': { lat: 11.9404, lng: 108.4583 },
+      'ha noi': { lat: 21.0285, lng: 105.8542 },
+      'ho chi minh': { lat: 10.7769, lng: 106.7009 },
+      'sai gon': { lat: 10.7769, lng: 106.7009 },
+      'phu quoc': { lat: 10.2289, lng: 103.9572 },
+      'nha trang': { lat: 12.2388, lng: 109.1967 },
+      'hue': { lat: 16.4637, lng: 107.5909 },
+      'sapa': { lat: 22.3364, lng: 103.8438 },
+      'sa pa': { lat: 22.3364, lng: 103.8438 },
+      'vung tau': { lat: 10.3460, lng: 107.0843 },
+      'quy nhon': { lat: 13.7830, lng: 109.2197 },
+      'ha long': { lat: 20.9505, lng: 107.0734 },
+      'can tho': { lat: 10.0452, lng: 105.7469 },
+      'phan thiet': { lat: 10.9289, lng: 108.1021 },
+      'mui ne': { lat: 10.9333, lng: 108.2833 },
+      'ninh binh': { lat: 20.2506, lng: 105.9745 },
+      'tam dao': { lat: 21.4583, lng: 105.6444 },
+      'moc chau': { lat: 20.8447, lng: 104.6469 },
+      'ha giang': { lat: 22.8233, lng: 104.9839 },
+      'phu yen': { lat: 13.0882, lng: 109.0926 },
+      'buon ma thuot': { lat: 12.6667, lng: 108.0383 },
+    };
+
+    const norm = removeVietnameseTones(destinationName);
+    for (const [key, coords] of Object.entries(POPULAR_COORDS)) {
+      if (norm.includes(key) || key.includes(norm)) {
+        return coords;
+      }
+    }
+
+    const isGoongKeyValid = GOONG_API_KEY && GOONG_API_KEY.trim().length > 5 && !GOONG_API_KEY.includes('your_');
+    if (isGoongKeyValid) {
+      try {
+        const res = await axios.get('https://rsapi.goong.io/Geocode', {
+          params: {
+            api_key: GOONG_API_KEY,
+            address: destinationName,
+          },
+        });
+        const loc = res.data?.results?.[0]?.geometry?.location;
+        if (loc?.lat && loc?.lng) {
+          return { lat: Number(loc.lat), lng: Number(loc.lng) };
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    try {
+      const photonRes = await axios.get('https://photon.komoot.io/api/', {
+        params: { q: destinationName, limit: 1 },
+      });
+      const coords = photonRes.data?.features?.[0]?.geometry?.coordinates;
+      if (coords && coords.length >= 2) {
+        return { lat: Number(coords[1]), lng: Number(coords[0]) };
+      }
+    } catch {
+      // Fallback
+    }
+
+    return { lat: 16.0544, lng: 108.2022 };
+  },
+
+  /**
+   * 5. Lấy tọa độ từ Goong Place ID (Detail API)
+   */
+  async getPlaceCoordinates(placeId: string): Promise<{ lat: number; lng: number } | null> {
+    const isGoongKeyValid = GOONG_API_KEY && GOONG_API_KEY.trim().length > 5 && !GOONG_API_KEY.includes('your_');
+    if (isGoongKeyValid && placeId) {
+      try {
+        const res = await axios.get('https://rsapi.goong.io/Place/Detail', {
+          params: {
+            api_key: GOONG_API_KEY,
+            place_id: placeId,
+          },
+        });
+        const loc = res.data?.result?.geometry?.location;
+        if (loc?.lat && loc?.lng) {
+          return { lat: Number(loc.lat), lng: Number(loc.lng) };
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    return null;
+  },
 };

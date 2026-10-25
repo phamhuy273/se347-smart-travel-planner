@@ -3,7 +3,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import CreateTripModal from '@/components/trips/CreateTripModal.vue';
-import { getUpcomingTrip } from '@/services/trip.service';
+import { useActivityStore } from '@/stores/activity.store';
+import { getUpcomingTrip, uploadImage, updateTrip } from '@/services/trip.service';
 import {
   Compass,
   Clock,
@@ -22,6 +23,10 @@ import {
   Save,
   Eye,
   Send,
+  X,
+  Camera,
+  Loader2,
+  Trash2,
 } from 'lucide-vue-next';
 import phuQuocCover from '@/assets/trips/phu-quoc-cover.png';
 import mekongDeltaImage from '@/assets/trips/mekong-delta.jpg';
@@ -31,15 +36,50 @@ import haGiangImage from '@/assets/trips/ha-giang.jpg';
 import hoiAnImage from '@/assets/trips/hoi-an.jpg';
 
 const router = useRouter();
+const activityStore = useActivityStore();
 const createTripModalOpen = ref(false);
 
 const openCreateTripModal = () => {
   createTripModalOpen.value = true;
 };
 
-const onTripCreated = () => {
+const onTripCreated = async () => {
   createTripModalOpen.value = false;
+  await fetchUpcomingTrip();
+  await activityStore.loadActivities();
   router.push('/trips');
+};
+
+const bannerFileInput = ref<HTMLInputElement | null>(null);
+const isUploadingBanner = ref(false);
+
+const triggerBannerInput = () => {
+  bannerFileInput.value?.click();
+};
+
+const onBannerFileSelected = async (e: Event) => {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+
+  try {
+    isUploadingBanner.value = true;
+    const url = await uploadImage(file);
+    if (url) {
+      upcomingTrip.value.coverImage = url;
+      if (upcomingTrip.value.id) {
+        await updateTrip(upcomingTrip.value.id, { cover_image_url: url });
+      }
+      activityStore.addActivity({
+        type: 'UPDATE_COVER',
+        text: `Bạn đã cập nhật ảnh bìa chuyến đi "${upcomingTrip.value.title}"`,
+      });
+    }
+  } catch (err) {
+    console.error('Lỗi tải ảnh bìa:', err);
+  } finally {
+    isUploadingBanner.value = false;
+    if (bannerFileInput.value) bannerFileInput.value.value = '';
+  }
 };
 
 // ─── Clock & Date ────────────────────────────────────────────────
@@ -51,7 +91,9 @@ onMounted(async () => {
   clockInterval = setInterval(() => {
     now.value = new Date();
   }, 1000);
+  loadChecklist();
   await fetchUpcomingTrip();
+  await activityStore.loadActivities();
 });
 
 const fetchUpcomingTrip = async () => {
@@ -63,6 +105,8 @@ const fetchUpcomingTrip = async () => {
     }
   } catch (err) {
     // Giữ mock data nếu không có chuyến đi sắp tới
+  } finally {
+    loadChecklist();
   }
 };
 
@@ -176,7 +220,7 @@ const upcomingTrip = ref<any>({
   title: 'Phú Quốc Luxury 5 sao',
   location: 'Phú Quốc, Việt Nam',
   duration: '5 ngày',
-  dateRange: '29/10/2026 → 3/11/2026',
+  dateRange: '20/08/2025 → 24/08/2025',
   daysLeft: 27,
   members: 4,
   coverImage: phuQuocCover,
@@ -185,7 +229,12 @@ const upcomingTrip = ref<any>({
 const mapUpcomingTrip = (trip: any) => {
   const start = trip.start_date ? new Date(trip.start_date) : null;
   const end = trip.end_date ? new Date(trip.end_date) : null;
-  const formatDate = (d: Date) => d.toLocaleDateString('vi-VN');
+  const formatDate = (d: Date) => {
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
   const dateRange = start && end ? `${formatDate(start)} → ${formatDate(end)}` : trip.dateRange || '';
   const daysCount = trip.days?.length || trip._count?.days || 0;
   const today = new Date();
@@ -210,8 +259,14 @@ const openUpcomingTrip = () => {
   }
 };
 
-// ─── Mock Data: Checklist ────────────────────────────────────────
-const checklist = ref([
+// ─── Interactive & Persisted Checklist ───────────────────────────
+interface ChecklistItem {
+  id: string | number;
+  text: string;
+  done: boolean;
+}
+
+const checklist = ref<ChecklistItem[]>([
   { id: 1, text: 'Đặt vé máy bay', done: true },
   { id: 2, text: 'Đặt phòng khách sạn', done: true },
   { id: 3, text: 'Mua bảo hiểm du lịch', done: false },
@@ -219,51 +274,98 @@ const checklist = ref([
   { id: 5, text: 'Cài app bản đồ offline', done: false },
 ]);
 
-const checklistDone = computed(() => checklist.value.filter((c) => c.done).length);
+const newItemText = ref('');
 
-const toggleCheck = (id: number) => {
-  const item = checklist.value.find((c) => c.id === id);
-  if (item) item.done = !item.done;
+const loadChecklist = () => {
+  const tripKey = upcomingTrip.value?.id
+    ? `wanderflow_checklist_${upcomingTrip.value.id}`
+    : 'wanderflow_checklist_default';
+  const saved = localStorage.getItem(tripKey);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        checklist.value = parsed;
+        return;
+      }
+    } catch (e) {
+      console.error('Failed to parse checklist', e);
+    }
+  }
+  checklist.value = [
+    { id: 1, text: 'Đặt vé máy bay', done: true },
+    { id: 2, text: 'Đặt phòng khách sạn', done: true },
+    { id: 3, text: 'Mua bảo hiểm du lịch', done: false },
+    { id: 4, text: 'Đổi tiền mặt', done: false },
+    { id: 5, text: 'Cài app bản đồ offline', done: false },
+  ];
 };
 
-// ─── Mock Data: Activities ───────────────────────────────────────
-const activities = ref([
-  {
-    id: 1,
-    text: 'Bạn vừa tạo chuyến đi "Đà Nẵng & Hội An"',
-    color: '#22C55E',
-    icon: Plus,
-    time: '2 giờ trước',
-  },
-  {
-    id: 2,
-    text: 'Minh Tú đã tham gia chuyến đi "Phú Quốc Luxury"',
-    color: '#0284C7',
-    icon: Users,
-    time: '5 giờ trước',
-  },
-  {
-    id: 3,
-    text: 'Lịch trình "Kyoto mùa lá đỏ" nhận được 12 lượt thích mới',
-    color: '#EAB308',
-    icon: Heart,
-    time: '1 ngày trước',
-  },
-  {
-    id: 4,
-    text: 'Tuấn Anh đã chỉnh sửa lịch trình "Hà Giang" của bạn',
-    color: '#F97316',
-    icon: Edit3,
-    time: '2 ngày trước',
-  },
-  {
-    id: 5,
-    text: 'Bạn đã lưu lịch trình "Bali — Đảo của các vị thần"',
-    color: '#0284C7',
-    icon: Save,
-    time: '3 ngày trước',
-  },
-]);
+const saveChecklist = () => {
+  const tripKey = upcomingTrip.value?.id
+    ? `wanderflow_checklist_${upcomingTrip.value.id}`
+    : 'wanderflow_checklist_default';
+  localStorage.setItem(tripKey, JSON.stringify(checklist.value));
+};
+
+const checklistDone = computed(() => checklist.value.filter((c) => c.done).length);
+
+const toggleCheck = (id: string | number) => {
+  const item = checklist.value.find((c) => c.id === id);
+  if (item) {
+    item.done = !item.done;
+    saveChecklist();
+    if (item.done) {
+      activityStore.addActivity({
+        type: 'CHECKLIST',
+        text: `Bạn đã chuẩn bị xong: "${item.text}"`,
+      });
+    }
+  }
+};
+
+const addChecklistItem = () => {
+  const text = newItemText.value.trim();
+  if (!text) return;
+  checklist.value.push({
+    id: Date.now().toString(),
+    text,
+    done: false,
+  });
+  newItemText.value = '';
+  saveChecklist();
+  activityStore.addActivity({
+    type: 'CHECKLIST',
+    text: `Bạn đã thêm mục chuẩn bị: "${text}"`,
+  });
+};
+
+const removeChecklistItem = (id: string | number) => {
+  checklist.value = checklist.value.filter((c) => c.id !== id);
+  saveChecklist();
+};
+
+// ─── Real Activity Icon Resolver ────────────────────────────────
+const handleClearActivities = () => {
+  activityStore.clearActivities();
+};
+
+const getActivityIcon = (iconName?: string) => {
+  switch (iconName) {
+    case 'Plus':
+      return Plus;
+    case 'Trash2':
+      return Trash2;
+    case 'MapPin':
+      return Map;
+    case 'CheckCircle2':
+      return CheckCircle2;
+    case 'Camera':
+      return Camera;
+    default:
+      return Edit3;
+  }
+};
 
 // ─── Mock Data: Statistics ───────────────────────────────────────
 const stats = ref([
@@ -367,116 +469,184 @@ const scrollFeatured = (direction: 'left' | 'right') => {
     <div class="grid grid-cols-5 gap-4">
       <!-- ─── LEFT COLUMN (3/5) ─────────────────────────────── -->
       <div class="col-span-3 flex flex-col gap-4">
-        <!-- 2a. UPCOMING TRIP CARD -->
-        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div class="relative h-40 overflow-hidden cursor-pointer" @click="openUpcomingTrip">
+        <!-- 2a. UNIFIED UPCOMING TRIP & CHECKLIST CARD -->
+        <div class="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+          <!-- Top: Upcoming Trip Banner -->
+          <div class="relative overflow-hidden cursor-pointer group" @click="openUpcomingTrip">
             <img
               :src="upcomingTrip.coverImage"
               :alt="upcomingTrip.title"
-              class="w-full h-full object-cover"
+              class="w-full h-56 sm:h-60 object-cover transition-transform duration-500 group-hover:scale-105"
             />
-            <div class="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-900/10 to-transparent"></div>
+            <!-- Dark gradient overlay covering bottom half -->
+            <div class="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/45 to-transparent"></div>
+
             <!-- UPCOMING TRIP badge -->
             <span
-              class="absolute top-3 left-3 px-2 py-1 bg-orange-500 text-white text-[9px] font-bold rounded-full tracking-wider uppercase"
+              class="absolute top-4 left-4 px-3 py-1 bg-[#ff5b19] text-white text-[10px] font-extrabold rounded-full tracking-wider uppercase shadow-sm"
             >
               Upcoming Trip
             </span>
+
+            <!-- Change banner image button -->
+            <button
+              type="button"
+              class="absolute top-4 right-28 bg-black/60 hover:bg-black/80 text-white/90 hover:text-white px-2.5 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 backdrop-blur-md border border-white/20 transition-all z-10 shadow-sm"
+              :disabled="isUploadingBanner"
+              title="Đổi ảnh bìa chuyến đi"
+              @click.stop="triggerBannerInput"
+            >
+              <Loader2 v-if="isUploadingBanner" class="w-3 h-3 animate-spin" />
+              <Camera v-else class="w-3 h-3" />
+              <span>{{ isUploadingBanner ? 'Đang tải...' : 'Đổi ảnh' }}</span>
+            </button>
+            <input
+              ref="bannerFileInput"
+              type="file"
+              accept="image/*"
+              class="hidden"
+              @change="onBannerFileSelected"
+            />
+
             <!-- Days left badge -->
             <div
               v-if="upcomingTrip.daysLeft !== undefined && upcomingTrip.daysLeft !== null"
-              class="absolute top-2 right-3 bg-slate-800/80 backdrop-blur-sm rounded-lg px-2.5 py-1 text-center shadow-sm"
+              class="absolute top-3.5 right-4 bg-slate-900/80 backdrop-blur-md rounded-xl px-3 py-1.5 text-center shadow-lg border border-white/10"
             >
-              <span class="text-amber-300 font-extrabold text-base leading-none block">{{ upcomingTrip.daysLeft }}</span>
-              <span class="text-white/80 text-[8px] font-medium">ngày nữa</span>
+              <span class="text-amber-300 font-black text-lg leading-none block">{{ upcomingTrip.daysLeft }}</span>
+              <span class="text-white/80 text-[9px] font-medium tracking-tight">ngày nữa</span>
             </div>
-            <div class="absolute bottom-3 left-3 right-3">
-              <h3 class="font-bold text-white text-sm drop-shadow">{{ upcomingTrip.title }}</h3>
-              <p class="text-white/80 text-[10px] mt-0.5 drop-shadow">
-                {{ upcomingTrip.location }} · {{ upcomingTrip.duration }} · {{ upcomingTrip.dateRange }}
-              </p>
+
+            <!-- Banner info overlay -->
+            <div class="absolute bottom-3.5 left-4 right-4 flex flex-col gap-2.5">
+              <div>
+                <h3 class="font-extrabold text-white text-base sm:text-lg drop-shadow-md leading-tight">
+                  {{ upcomingTrip.title }}
+                </h3>
+                <p class="text-white/90 text-[11px] mt-1 drop-shadow flex items-center gap-1 font-medium">
+                  <span>📍</span>
+                  <span>{{ upcomingTrip.location }} · {{ upcomingTrip.duration }} · {{ upcomingTrip.dateRange }}</span>
+                </p>
+              </div>
+
+              <!-- Members & Open Itinerary Button -->
+              <div class="flex items-center justify-between pt-1">
+                <div class="flex items-center gap-2">
+                  <!-- Member avatars -->
+                  <div class="flex -space-x-2">
+                    <div
+                      v-for="i in Math.min(upcomingTrip.members || 1, 4)"
+                      :key="i"
+                      class="w-7 h-7 rounded-full border-2 border-white/80 bg-white/20 backdrop-blur-xs flex items-center justify-center text-[9px] font-bold text-white shadow-sm"
+                    >
+                      {{ ['PH', 'MT', 'TA', 'VN'][i - 1] || 'U' + i }}
+                    </div>
+                  </div>
+                  <span class="text-white/90 text-xs font-medium">{{ upcomingTrip.members || 1 }} thành viên</span>
+                </div>
+
+                <button
+                  class="px-3.5 py-1.5 bg-[#d2f8e8] hover:bg-[#bbf3dd] text-[#0f766e] text-xs font-bold rounded-full transition-all duration-200 shadow-sm active:scale-95 flex items-center gap-1"
+                  @click.stop="openUpcomingTrip"
+                >
+                  Mở lịch trình →
+                </button>
+              </div>
             </div>
           </div>
-          <div class="px-4 py-3">
-            <div class="flex items-center justify-between mt-3">
-              <div class="flex items-center gap-2">
-                <!-- Member avatars -->
-                <div class="flex -space-x-2">
+
+          <!-- Bottom: Checklist & Action -->
+          <div class="p-6 flex flex-col">
+            <!-- Header -->
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-extrabold text-slate-800 text-base">Chuẩn bị hành lý</h3>
+              <span class="text-xs font-bold text-[#0d9488]">{{ checklistDone }}/{{ checklist.length }}</span>
+            </div>
+
+            <!-- Progress bar -->
+            <div class="w-full h-1.5 bg-[#e2f2ef] rounded-full mb-4 overflow-hidden">
+              <div
+                class="h-full bg-[#0d9488] rounded-full transition-all duration-300"
+                :style="{ width: `${checklist.length > 0 ? (checklistDone / checklist.length) * 100 : 0}%` }"
+              ></div>
+            </div>
+
+            <!-- Checklist items -->
+            <div class="space-y-3">
+              <div
+                v-for="item in checklist"
+                :key="item.id"
+                class="flex items-center justify-between group cursor-pointer select-none py-0.5"
+                @click="toggleCheck(item.id)"
+              >
+                <div class="flex items-center gap-3">
+                  <!-- Custom Checkbox -->
                   <div
-                    v-for="i in Math.min(upcomingTrip.members, 4)"
-                    :key="i"
-                    class="w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-[9px] font-bold text-white"
+                    class="w-5 h-5 rounded-md flex items-center justify-center transition-all duration-200"
+                    :class="item.done ? 'bg-[#0d9488] text-white shadow-xs' : 'border border-slate-300 hover:border-slate-400 bg-white'"
+                  >
+                    <svg
+                      v-if="item.done"
+                      class="w-3.5 h-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      stroke-width="3"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                  </div>
+
+                  <!-- Text -->
+                  <span
                     :class="[
-                      i === 1 ? 'bg-slate-700' : '',
-                      i === 2 ? 'bg-slate-600' : '',
-                      i === 3 ? 'bg-slate-500' : '',
-                      i === 4 ? 'bg-slate-400' : '',
+                      'text-xs font-medium transition-all duration-200',
+                      item.done ? 'text-slate-400 line-through' : 'text-slate-700',
                     ]"
                   >
-                    {{ ['PH', 'MT', 'TA', 'VN'][i - 1] }}
-                  </div>
+                    {{ item.text }}
+                  </span>
                 </div>
-                <span class="text-slate-500 text-xs">{{ upcomingTrip.members }} thành viên</span>
+
+                <!-- Delete item on hover -->
+                <button
+                  v-if="checklist.length > 1"
+                  class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition-opacity p-1 text-xs"
+                  title="Xóa mục này"
+                  @click.stop="removeChecklistItem(item.id)"
+                >
+                  <X class="w-3.5 h-3.5" />
+                </button>
               </div>
+            </div>
+
+            <!-- Add new item quick input -->
+            <div class="mt-3.5 pt-2 flex items-center gap-2">
+              <input
+                v-model="newItemText"
+                type="text"
+                placeholder="+ Thêm đồ dùng cần chuẩn bị..."
+                class="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 focus:outline-none focus:border-[#0d9488] focus:bg-white transition-all text-slate-700 placeholder:text-slate-400"
+                @keyup.enter="addChecklistItem"
+              />
               <button
-                class="px-4 py-1.5 border border-slate-200 text-slate-600 text-xs font-semibold rounded-full hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
-                @click="openUpcomingTrip"
+                v-if="newItemText.trim()"
+                class="px-3 py-1.5 bg-[#0d9488] hover:bg-[#0b7a6f] text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
+                @click="addChecklistItem"
               >
-                Mở lịch trình →
+                Thêm
               </button>
             </div>
-          </div>
-        </div>
 
-        <!-- 2b. CHECKLIST — Chuẩn bị hành lý -->
-        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-          <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-2">
-              <CheckCircle2 class="w-4 h-4 text-brand-blue" />
-              <h3 class="font-bold text-slate-900 text-sm">Chuẩn bị hành lý</h3>
-            </div>
-            <span class="text-xs font-semibold text-slate-400">{{ checklistDone }}/{{ checklist.length }}</span>
-          </div>
-          <!-- Progress bar -->
-          <div class="w-full h-1.5 bg-slate-100 rounded-full mb-4 overflow-hidden">
-            <div
-              class="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full transition-all duration-500"
-              :style="{ width: `${(checklistDone / checklist.length) * 100}%` }"
-            ></div>
-          </div>
-          <div class="space-y-2.5">
-            <label
-              v-for="item in checklist"
-              :key="item.id"
-              class="flex items-center gap-3 py-1.5 px-2 rounded-xl cursor-pointer transition-colors duration-150 hover:bg-slate-50 group"
-              @click="toggleCheck(item.id)"
+            <!-- Create new trip button -->
+            <button
+              class="mt-6 w-full flex items-center justify-center gap-2 py-3 bg-[#ff5b19] hover:bg-[#ea4e0f] text-white text-sm font-bold rounded-2xl transition-all duration-200 shadow-md shadow-orange-500/20 active:scale-[0.99]"
+              @click="openCreateTripModal"
             >
-              <CheckCircle2
-                v-if="item.done"
-                class="w-4.5 h-4.5 text-emerald-500 flex-shrink-0"
-              />
-              <Circle
-                v-else
-                class="w-4.5 h-4.5 text-slate-300 group-hover:text-slate-400 flex-shrink-0"
-              />
-              <span
-                :class="[
-                  'text-xs transition-all duration-150',
-                  item.done ? 'text-slate-400 line-through' : 'text-slate-700',
-                ]"
-              >
-                {{ item.text }}
-              </span>
-            </label>
+              <Plus class="w-4 h-4 stroke-[2.5]" />
+              Tạo chuyến đi mới
+            </button>
           </div>
-          <!-- Create new trip button -->
-          <button
-            class="mt-5 w-full flex items-center justify-center gap-2 py-2.5 bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-bold rounded-full transition-all duration-200 shadow-sm active:scale-[0.98]"
-            @click="openCreateTripModal"
-          >
-            <Plus class="w-3.5 h-3.5" />
-            Tạo chuyến đi mới
-          </button>
         </div>
 
         <!-- 2c. STATISTICS — Kế hoạch chuyến đi -->
@@ -634,16 +804,21 @@ const scrollFeatured = (direction: 'left' | 'right') => {
         </div>
 
         <!-- 2e. ACTIVITY FEED — Hoạt động gần đây -->
-        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex-1">
+        <div class="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex-1 flex flex-col">
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-bold text-slate-900 text-sm">Hoạt động gần đây</h3>
-            <button class="text-brand-blue text-xs font-semibold hover:underline">
-              Xem tất cả
+            <button
+              v-if="activityStore.activities.length > 0"
+              type="button"
+              class="text-slate-400 hover:text-rose-500 text-xs font-semibold hover:underline cursor-pointer transition-colors"
+              @click="handleClearActivities"
+            >
+              Xóa lịch sử
             </button>
           </div>
-          <div class="space-y-3">
+          <div v-if="activityStore.activities.length > 0" class="space-y-3">
             <div
-              v-for="activity in activities"
+              v-for="activity in activityStore.activities"
               :key="activity.id"
               class="flex items-start gap-3 py-2 px-2 rounded-xl hover:bg-slate-50 transition-colors duration-150"
             >
@@ -652,16 +827,24 @@ const scrollFeatured = (direction: 'left' | 'right') => {
                 :style="{ backgroundColor: activity.color + '15' }"
               >
                 <component
-                  :is="activity.icon"
+                  :is="getActivityIcon(activity.iconName)"
                   class="w-3.5 h-3.5"
                   :style="{ color: activity.color }"
                 />
               </div>
               <div class="flex-1 min-w-0">
-                <p class="text-xs text-slate-700 leading-relaxed">{{ activity.text }}</p>
+                <p class="text-xs text-slate-700 leading-relaxed font-medium">{{ activity.text }}</p>
                 <p class="text-[10px] text-slate-400 mt-0.5">{{ activity.time }}</p>
               </div>
             </div>
+          </div>
+          <!-- Empty State khi chưa có hoạt động nào -->
+          <div v-else class="py-8 flex flex-col items-center justify-center text-center flex-1">
+            <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 mb-2">
+              <Clock class="w-5 h-5 stroke-[1.5]" />
+            </div>
+            <p class="text-xs font-semibold text-slate-600">Chưa có hoạt động nào</p>
+            <p class="text-[10px] text-slate-400 mt-0.5 max-w-[200px]">Các hoạt động tạo chuyến đi, thêm địa điểm hoặc chuẩn bị hành lý sẽ được lưu tại đây</p>
           </div>
         </div>
       </div>

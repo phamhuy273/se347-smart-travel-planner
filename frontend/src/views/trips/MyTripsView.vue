@@ -3,12 +3,14 @@ import { computed, onMounted, ref } from 'vue';
 import TripCard from '@/components/trips/TripCard.vue';
 import CreateTripModal from '@/components/trips/CreateTripModal.vue';
 import type { Trip } from '@/types/trip';
-import { getTrips } from '@/services/trip.service';
+import { getTrips, deleteTrip } from '@/services/trip.service';
 import { useAuthStore } from '@/stores/auth.store';
+import { useActivityStore } from '@/stores/activity.store';
 
 const img = (name: string) => new URL(`../../assets/my_planner/${name}`, import.meta.url).href;
 
 const authStore = useAuthStore();
+const activityStore = useActivityStore();
 
 const tabs = ['Tất cả', 'Của tôi', 'Đã lưu'];
 const activeTab = ref('Của tôi');
@@ -82,6 +84,23 @@ const onTripCreated = (trip: Trip) => {
   tripList.value.unshift(trip);
   fetchTrips().catch(() => {});
 };
+
+const onDeleteTrip = async (trip: Trip) => {
+  if (!trip.id) return;
+  const isConfirmed = window.confirm(`Bạn có chắc chắn muốn xóa chuyến đi "${trip.title}" không? Hành động này không thể hoàn tác.`);
+  if (!isConfirmed) return;
+
+  try {
+    await deleteTrip(String(trip.id));
+    tripList.value = tripList.value.filter((t) => t.id !== trip.id);
+    activityStore.addActivity({
+      type: 'DELETE_TRIP',
+      text: `Bạn đã xóa chuyến đi "${trip.title}"`,
+    });
+  } catch (err: any) {
+    alert(err?.message || 'Không thể xóa chuyến đi.');
+  }
+};
 </script>
 
 <template>
@@ -115,7 +134,12 @@ const onTripCreated = (trip: Trip) => {
     </div>
 
     <div class="trip-grid">
-      <TripCard v-for="trip in visibleTrips" :key="trip.id || trip.title" :trip="trip" />
+      <TripCard
+        v-for="trip in visibleTrips"
+        :key="trip.id || trip.title"
+        :trip="trip"
+        @delete="onDeleteTrip"
+      />
       <p v-if="loading" class="empty-state">Đang tải...</p>
       <p v-else-if="error" class="empty-state">{{ error }}</p>
       <p v-else-if="visibleTrips.length === 0" class="empty-state">Không tìm thấy chuyến đi phù hợp.</p>

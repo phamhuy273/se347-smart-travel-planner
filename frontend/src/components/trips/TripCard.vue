@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import type { Trip } from '@/types/trip';
 
 const props = defineProps<{ trip: Trip }>();
 const emit = defineEmits<{
   (e: 'view-detail', trip: Trip): void;
+  (e: 'delete', trip: Trip): void;
 }>();
 const router = useRouter();
 
@@ -18,6 +19,18 @@ const img = (name?: string) => {
     return name;
   }
 };
+
+const closeMenu = () => {
+  menuOpen.value = false;
+};
+
+onMounted(() => {
+  window.addEventListener('click', closeMenu);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', closeMenu);
+});
 
 // URL đầy đủ (http, blob, /...) dùng thẳng; tên file thì lấy từ assets
 const cover = computed(() => {
@@ -67,6 +80,11 @@ const onViewDetail = () => {
   }
   emit('view-detail', props.trip);
 };
+
+const onDelete = () => {
+  menuOpen.value = false;
+  emit('delete', props.trip);
+};
 </script>
 
 <template>
@@ -76,9 +94,9 @@ const onViewDetail = () => {
       <button class="more-button" type="button" :aria-expanded="menuOpen" @click.stop="menuOpen = !menuOpen">
         ...
       </button>
-      <div v-if="menuOpen" class="card-menu">
-        <button type="button">Chỉnh sửa</button>
-        <button type="button">Chia sẻ</button>
+      <div v-if="menuOpen" class="card-menu" @click.stop>
+        <button type="button" @click="onViewDetail">Xem chi tiết</button>
+        <button type="button" class="delete-btn" @click="onDelete">Xóa chuyến đi</button>
       </div>
     </div>
 
@@ -107,9 +125,11 @@ const onViewDetail = () => {
 .trip-image-wrap { position: relative; height: 162px; margin: 13px 12px 0; }
 .trip-image { display: block; width: 100%; height: 100%; border-radius: 10px; object-fit: cover; }
 .more-button { position: absolute; top: 6px; right: 6px; display: grid; width: 35px; height: 35px; place-items: center; border: 0; border-radius: 8px; background: #fff; font-size: 18px; font-weight: 900; letter-spacing: 1px; line-height: 1; cursor: pointer; }
-.card-menu { position: absolute; z-index: 8; top: 45px; right: 6px; width: 118px; overflow: hidden; border: 1px solid rgb(0 0 0 / 10%); border-radius: 10px; background: #fff; box-shadow: 0 5px 18px rgb(0 0 0 / 16%); font-size: 13px; font-weight: 500; }
-.card-menu button { display: block; width: 100%; border: 0; padding: 10px 14px; background: #fff; text-align: left; cursor: pointer; }
+.card-menu { position: absolute; z-index: 8; top: 45px; right: 6px; width: 135px; overflow: hidden; border: 1px solid rgb(0 0 0 / 10%); border-radius: 10px; background: #fff; box-shadow: 0 5px 18px rgb(0 0 0 / 16%); font-size: 13px; font-weight: 500; }
+.card-menu button { display: block; width: 100%; border: 0; padding: 10px 14px; background: #fff; text-align: left; cursor: pointer; transition: background 120ms ease; }
 .card-menu button:hover { background: #eef8fd; }
+.card-menu button.delete-btn { color: #dc2626; font-weight: 600; border-top: 1px solid #f1f5f9; }
+.card-menu button.delete-btn:hover { background: #fef2f2; }
 .trip-content { padding: 12px 13px; }
 .trip-content h2 { margin: 0 0 4px; font-size: 20px; font-weight: 700; }
 .trip-facts { display: grid; grid-template-columns: 1fr 0.72fr; row-gap: 4px; color: #757d6f; font-size: 12px; }
