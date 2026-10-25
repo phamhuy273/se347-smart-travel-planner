@@ -59,6 +59,11 @@ const routes: Array<RouteRecordRaw> = [
     meta: { requiresAuth: true },
     children: [
       {
+        path: '',
+        name: 'PlannerDefault',
+        component: () => import('@/views/planner/PlannerView.vue'),
+      },
+      {
         path: ':id',
         name: 'Planner',
         component: () => import('@/views/planner/PlannerView.vue'),
