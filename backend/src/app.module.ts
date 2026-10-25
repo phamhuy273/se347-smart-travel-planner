@@ -4,6 +4,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
 import { UploadModule } from './common/upload/upload.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { TripsModule } from './modules/trips/trips.module';
 import { PlacesModule } from './modules/places/places.module';
 
 @Module({
@@ -14,6 +16,8 @@ import { PlacesModule } from './modules/places/places.module';
     }),
     PrismaModule,
     UploadModule,
+    AuthModule,
+    TripsModule,
     PlacesModule,
   ],
   controllers: [AppController],

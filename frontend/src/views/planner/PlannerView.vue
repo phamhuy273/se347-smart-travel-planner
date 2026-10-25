@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { usePlannerStore } from '@/stores/plannerStore';
+import { getTripById } from '@/services/trip.service';
 import PlaceSearchPanel from '@/components/planner/PlaceSearchPanel.vue';
 import DayColumn from '@/components/planner/DayColumn.vue';
 import PlannerMap from '@/components/map/PlannerMap.vue';
@@ -15,10 +17,44 @@ import {
   Map as MapIcon,
   ChevronRight,
   ChevronLeft,
+  ArrowLeft,
 } from 'lucide-vue-next';
 
+const route = useRoute();
+const router = useRouter();
 const plannerStore = usePlannerStore();
 const workspaceRef = ref<HTMLElement | null>(null);
+
+const tripDestination = ref('');
+const tripDateRange = ref('');
+
+const formatDate = (d?: string) => {
+  if (!d) return '';
+  try {
+    return new Date(d).toLocaleDateString('vi-VN');
+  } catch {
+    return d;
+  }
+};
+
+onMounted(async () => {
+  const id = route.params.id as string;
+  if (id && id !== 'demo-trip-1') {
+    try {
+      const response: any = await getTripById(id);
+      const tripData = response?.data || response;
+      if (tripData) {
+        if (tripData.title) plannerStore.tripTitle = tripData.title;
+        if (tripData.destination) tripDestination.value = tripData.destination;
+        if (tripData.start_date && tripData.end_date) {
+          tripDateRange.value = `${formatDate(tripData.start_date)} - ${formatDate(tripData.end_date)}`;
+        }
+      }
+    } catch {
+      // Mock mode fallback
+    }
+  }
+});
 
 // Panel Collapsible States
 const isSearchPanelOpen = ref(true);
@@ -105,6 +141,17 @@ const stopDragRight = () => {
     <div class="h-14 bg-white border-b border-slate-200/80 px-5 flex items-center justify-between shadow-2xs z-20 flex-shrink-0">
       <!-- Left: Trip Title, Date Badges & Toggle Buttons -->
       <div class="flex items-center gap-3">
+        <!-- Back button to trips list -->
+        <button
+          type="button"
+          class="p-1.5 px-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
+          title="Quay lại danh sách chuyến đi"
+          @click="router.push('/trips')"
+        >
+          <ArrowLeft class="w-3.5 h-3.5" />
+          <span class="hidden sm:inline">Chuyến đi</span>
+        </button>
+
         <!-- Toggle Search Panel Button -->
         <button
           :class="[
@@ -126,12 +173,12 @@ const stopDragRight = () => {
 
         <div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 font-semibold text-[11px] border border-slate-200">
           <CalendarDays class="w-3.5 h-3.5 text-brand-blue" />
-          <span>10/10 - 13/10/2026 ({{ plannerStore.days.length }} ngày)</span>
+          <span>{{ tripDateRange || '10/10 - 13/10/2026' }} ({{ plannerStore.days.length }} ngày)</span>
         </div>
 
         <div class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-[11px] border border-emerald-200">
           <MapPin class="w-3.5 h-3.5 text-emerald-600" />
-          <span>Đà Nẵng & Hội An</span>
+          <span>{{ tripDestination || 'Đà Nẵng & Hội An' }}</span>
         </div>
       </div>
 

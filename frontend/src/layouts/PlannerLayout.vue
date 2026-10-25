@@ -10,7 +10,7 @@ import {
   ChevronDown,
   LogOut,
 } from 'lucide-vue-next';
-import dashboardBg from '@/assets/dashboard-bg.png';
+import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
 
 const router = useRouter();
 const route = useRoute();
