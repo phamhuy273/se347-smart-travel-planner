@@ -1,29 +1,32 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import {
   Home,
   Map,
   Compass,
-  Search,
-  SlidersHorizontal,
   Bell,
   Moon,
   ChevronDown,
   LogOut,
 } from 'lucide-vue-next';
-import dashboardBg from '@/assets/dashboard-bg.png';
-import sidebarBg from '@/assets/sidebar-bg.png';
+import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
 
 const router = useRouter();
+const route = useRoute();
 
 const showUserMenu = ref(false);
-const searchQuery = ref('');
 
 const user = ref({
   name: 'Pham Huy',
   email: 'phamhuy@example.com',
 });
+
+const navItems = [
+  { name: 'Trang chủ', path: '/dashboard', icon: Home },
+  { name: 'Lập lịch trình', path: '/planner', icon: Map },
+  { name: 'Chuyến đi của tôi', path: '/trips', icon: Compass },
+];
 
 const handleLogout = () => {
   localStorage.removeItem('access_token');
@@ -34,31 +37,36 @@ const handleLogout = () => {
 
 <template>
   <div class="flex flex-col h-screen w-screen overflow-hidden font-sans select-none">
+    <!-- Top Header: Logo + Navigation Tabs (No global search bar) + User Actions -->
     <header class="h-16 bg-white border-b border-slate-200/80 px-6 flex items-center justify-between shadow-xs z-30 flex-shrink-0">
-      <!-- Brand Logo -->
-      <div class="flex items-center gap-2 cursor-pointer" @click="router.push('/dashboard')">
-        <span class="text-2xl font-black tracking-tight text-[#0F172A] hover:text-brand-blue transition">
-          Trip<span class="text-brand-blue">Planner</span>
-        </span>
-      </div>
-
-      <!-- Center: Pill Search Bar with Filter icon -->
-      <div class="relative w-full max-w-md mx-6">
-        <div class="relative flex items-center">
-          <Search class="w-4 h-4 text-slate-400 absolute left-4 pointer-events-none" />
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Tìm kiếm địa điểm, thành phố, ..."
-            class="w-full bg-slate-50 hover:bg-slate-100/80 text-slate-800 text-xs rounded-full pl-11 pr-11 py-2.5 transition focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-blue/30 border border-slate-200 focus:border-brand-blue placeholder:text-slate-400"
-          />
-          <button
-            class="absolute right-3.5 p-1 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition"
-            title="Bộ lọc tìm kiếm"
-          >
-            <SlidersHorizontal class="w-3.5 h-3.5" />
-          </button>
+      <!-- Left: Brand Logo & Navigation Pill Tabs -->
+      <div class="flex items-center gap-6">
+        <div class="flex items-center gap-2 cursor-pointer" @click="router.push('/dashboard')">
+          <span class="text-2xl font-black tracking-tight text-[#0F172A] hover:text-brand-blue transition">
+            Trip<span class="text-brand-blue">Planner</span>
+          </span>
         </div>
+
+        <!-- Horizontal Navigation Tabs -->
+        <nav class="hidden sm:flex items-center gap-1 bg-slate-100/80 p-1 rounded-full border border-slate-200/60">
+          <button
+            v-for="item in navItems"
+            :key="item.path"
+            :class="[
+              'flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all duration-200',
+              route.path.startsWith(item.path)
+                ? 'bg-white text-slate-900 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50',
+            ]"
+            @click="router.push(item.path)"
+          >
+            <component
+              :is="item.icon"
+              :class="['w-4 h-4', route.path.startsWith(item.path) ? 'text-emerald-600' : 'text-slate-500']"
+            />
+            <span>{{ item.name }}</span>
+          </button>
+        </nav>
       </div>
 
       <!-- Right Actions: Darkmode, Bell, Profile Badge -->
@@ -110,47 +118,11 @@ const handleLogout = () => {
       </div>
     </header>
 
-   
+    <!-- Main Workspace Container (Extended to 100% full width, no left sidebar) -->
     <div
-      class="flex-1 flex min-h-0 relative bg-cover bg-center overflow-hidden p-4 gap-4"
+      class="flex-1 flex min-h-0 relative bg-cover bg-center overflow-hidden p-4"
       :style="{ backgroundImage: `url(${dashboardBg})` }"
     >
-
-      <aside
-        class="w-16 flex-shrink-0 relative rounded-3xl shadow-2xl border border-white/40 flex flex-col items-center py-6 justify-between text-white z-20 overflow-hidden bg-cover bg-center"
-        :style="{ backgroundImage: `url(${sidebarBg})` }"
-      >
-        <!-- Navigation Icon Buttons -->
-        <nav class="relative z-10 flex flex-col items-center gap-4">
-          <button
-            class="w-10 h-10 rounded-full flex items-center justify-center text-white/90 hover:bg-white/20 hover:text-white transition drop-shadow-sm"
-            title="Trang chủ (Dashboard)"
-            @click="router.push('/dashboard')"
-          >
-            <Home class="w-5 h-5 text-white" />
-          </button>
-
-          <button
-            class="w-10 h-10 rounded-full flex items-center justify-center bg-white text-slate-800 shadow-md font-bold"
-            title="Lập lịch trình (Planner)"
-          >
-            <Map class="w-5 h-5 text-emerald-600" />
-          </button>
-
-          <button
-            class="w-10 h-10 rounded-full flex items-center justify-center text-white/90 hover:bg-white/20 hover:text-white transition drop-shadow-sm"
-            title="Chuyến đi của tôi"
-            @click="router.push('/trips')"
-          >
-            <Compass class="w-5 h-5 text-white" />
-          </button>
-        </nav>
-
-        <!-- Khoảng trống phía dưới -->
-        <div class="h-20 pointer-events-none"></div>
-      </aside>
-
-      
       <main
         class="flex-1 min-w-0 relative z-10 bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl border border-white/60 overflow-hidden flex flex-col"
       >
