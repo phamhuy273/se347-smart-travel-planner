@@ -151,7 +151,8 @@ export class TripsService {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    return this.prisma.trip.findFirst({
+    // Ưu tiên chuyến đi sắp tới (start_date >= hôm nay)
+    let trip = await this.prisma.trip.findFirst({
       where: {
         owner_id: userId,
         is_deleted: false,
@@ -163,6 +164,58 @@ export class TripsService {
       },
       orderBy: [{ start_date: 'asc' }, { created_at: 'asc' }],
     });
+
+    // Nếu không có chuyến tương lai, lấy chuyến đi gần nhất của user
+    if (!trip) {
+      trip = await this.prisma.trip.findFirst({
+        where: {
+          owner_id: userId,
+          is_deleted: false,
+        },
+        include: {
+          owner: { select: tripOwnerSelect },
+          days: { orderBy: { day_number: 'asc' } },
+        },
+        orderBy: { created_at: 'desc' },
+      });
+    }
+
+    return trip;
+  }
+
+  async getStatistics(userId: string) {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const [upcomingCount, totalTrips, totalPlaces] = await Promise.all([
+      this.prisma.trip.count({
+        where: {
+          owner_id: userId,
+          is_deleted: false,
+          start_date: { gte: today },
+        },
+      }),
+      this.prisma.trip.count({
+        where: {
+          owner_id: userId,
+          is_deleted: false,
+        },
+      }),
+      this.prisma.placeItem.count({
+        where: {
+          trip: {
+            owner_id: userId,
+            is_deleted: false,
+          },
+        },
+      }),
+    ]);
+
+    return {
+      upcoming_count: upcomingCount,
+      saved_places_count: totalPlaces,
+      total_trips_count: totalTrips,
+    };
   }
 
   async update(userId: string, tripId: string, dto: UpdateTripDto) {
