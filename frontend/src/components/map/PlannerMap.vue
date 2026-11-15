@@ -27,7 +27,7 @@ const FREE_MAP_STYLE: any = {
     'osm-tiles': {
       type: 'raster',
       tiles: [
-        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        'https://tile.openstreetmap.de/{z}/{x}/{y}.png',
       ],
       tileSize: 256,
       attribution: '© OpenStreetMap contributors',

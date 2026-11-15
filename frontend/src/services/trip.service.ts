@@ -42,5 +42,7 @@ export const deleteTrip = (id: string) => apiClient.delete(`/trips/${id}`);
 
 export const getUpcomingTrip = () => apiClient.get('/trips/upcoming');
 
+export const getTripStatistics = () => apiClient.get('/trips/statistics');
+
 export const searchCoverPhotos = (query: string) =>
   apiClient.get('/unsplash', { params: { query } }) as unknown as Promise<{ photos: UnsplashPhoto[] }>;

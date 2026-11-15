@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth.store';
 import CreateTripModal from '@/components/trips/CreateTripModal.vue';
 import { useActivityStore } from '@/stores/activity.store';
-import { getUpcomingTrip, uploadImage, updateTrip } from '@/services/trip.service';
+import { getUpcomingTrip, getTripStatistics, uploadImage, updateTrip } from '@/services/trip.service';
 import {
   Compass,
   Clock,
@@ -45,15 +45,19 @@ const openCreateTripModal = () => {
 
 const onTripCreated = async () => {
   createTripModalOpen.value = false;
-  await fetchUpcomingTrip();
-  await activityStore.loadActivities();
+  await Promise.all([
+    fetchUpcomingTrip(),
+    fetchStatistics(),
+    activityStore.loadActivities(),
+  ]);
   router.push('/trips');
 };
 
 const bannerFileInput = ref<HTMLInputElement | null>(null);
 const isUploadingBanner = ref(false);
 
-const triggerBannerInput = () => {
+const triggerBannerInput = (e?: Event) => {
+  e?.stopPropagation();
   bannerFileInput.value?.click();
 };
 
@@ -64,7 +68,7 @@ const onBannerFileSelected = async (e: Event) => {
   try {
     isUploadingBanner.value = true;
     const url = await uploadImage(file);
-    if (url) {
+    if (url && upcomingTrip.value) {
       upcomingTrip.value.coverImage = url;
       if (upcomingTrip.value.id) {
         await updateTrip(upcomingTrip.value.id, { cover_image_url: url });
@@ -91,20 +95,24 @@ onMounted(async () => {
   clockInterval = setInterval(() => {
     now.value = new Date();
   }, 1000);
-  loadChecklist();
-  await fetchUpcomingTrip();
-  await activityStore.loadActivities();
+  await Promise.all([
+    fetchUpcomingTrip(),
+    fetchStatistics(),
+    activityStore.loadActivities(),
+  ]);
 });
 
 const fetchUpcomingTrip = async () => {
   try {
     const response: any = await getUpcomingTrip();
     const data = response?.data || response;
-    if (data) {
+    if (data && data.id) {
       upcomingTrip.value = mapUpcomingTrip(data);
+    } else {
+      upcomingTrip.value = null;
     }
   } catch (err) {
-    // Giữ mock data nếu không có chuyến đi sắp tới
+    upcomingTrip.value = null;
   } finally {
     loadChecklist();
   }
@@ -215,16 +223,7 @@ const changeMonth = (offset: number) => {
 };
 
 // ─── Upcoming Trip (API) ────────────────────────────────────
-const upcomingTrip = ref<any>({
-  id: null,
-  title: 'Phú Quốc Luxury 5 sao',
-  location: 'Phú Quốc, Việt Nam',
-  duration: '5 ngày',
-  dateRange: '20/08/2025 → 24/08/2025',
-  daysLeft: 27,
-  members: 4,
-  coverImage: phuQuocCover,
-});
+const upcomingTrip = ref<any>(null);
 
 const mapUpcomingTrip = (trip: any) => {
   const start = trip.start_date ? new Date(trip.start_date) : null;
@@ -266,13 +265,7 @@ interface ChecklistItem {
   done: boolean;
 }
 
-const checklist = ref<ChecklistItem[]>([
-  { id: 1, text: 'Đặt vé máy bay', done: true },
-  { id: 2, text: 'Đặt phòng khách sạn', done: true },
-  { id: 3, text: 'Mua bảo hiểm du lịch', done: false },
-  { id: 4, text: 'Đổi tiền mặt', done: false },
-  { id: 5, text: 'Cài app bản đồ offline', done: false },
-]);
+const checklist = ref<ChecklistItem[]>([]);
 
 const newItemText = ref('');
 
@@ -284,21 +277,25 @@ const loadChecklist = () => {
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        checklist.value = parsed;
-        return;
+      if (Array.isArray(parsed)) {
+        // Nếu là danh sách mock mặc định cũ (5 món Đặt vé máy bay...) thì dọn sạch để danh sách trống
+        const isOldDefaultList =
+          parsed.length === 5 &&
+          parsed.some((i: ChecklistItem) => i.text === 'Đặt vé máy bay') &&
+          parsed.some((i: ChecklistItem) => i.text === 'Cài app bản đồ offline');
+
+        if (!isOldDefaultList) {
+          checklist.value = parsed;
+          return;
+        } else {
+          localStorage.removeItem(tripKey);
+        }
       }
     } catch (e) {
       console.error('Failed to parse checklist', e);
     }
   }
-  checklist.value = [
-    { id: 1, text: 'Đặt vé máy bay', done: true },
-    { id: 2, text: 'Đặt phòng khách sạn', done: true },
-    { id: 3, text: 'Mua bảo hiểm du lịch', done: false },
-    { id: 4, text: 'Đổi tiền mặt', done: false },
-    { id: 5, text: 'Cài app bản đồ offline', done: false },
-  ];
+  checklist.value = [];
 };
 
 const saveChecklist = () => {
@@ -367,12 +364,43 @@ const getActivityIcon = (iconName?: string) => {
   }
 };
 
-// ─── Mock Data: Statistics ───────────────────────────────────────
+// ─── Real Statistics (API) ───────────────────────────────────────
 const stats = ref([
-  { label: 'chuyến sắp tới', value: 2, icon: CalendarDays, color: 'text-brand-blue' },
-  { label: 'địa điểm đã lưu', value: 5, icon: Bookmark, color: 'text-brand-orange' },
-  { label: 'lịch trình đã tạo', value: 12, icon: Map, color: 'text-emerald-500' },
+  { label: 'chuyến sắp tới', value: 0, icon: CalendarDays, color: 'text-brand-blue' },
+  { label: 'địa điểm đã lưu', value: 0, icon: Bookmark, color: 'text-brand-orange' },
+  { label: 'lịch trình đã tạo', value: 0, icon: Map, color: 'text-emerald-500' },
 ]);
+
+const fetchStatistics = async () => {
+  try {
+    const response: any = await getTripStatistics();
+    const data = response?.data || response;
+    if (data) {
+      stats.value = [
+        {
+          label: 'chuyến sắp tới',
+          value: data.upcoming_count ?? 0,
+          icon: CalendarDays,
+          color: 'text-brand-blue',
+        },
+        {
+          label: 'địa điểm đã lưu',
+          value: data.saved_places_count ?? 0,
+          icon: Bookmark,
+          color: 'text-brand-orange',
+        },
+        {
+          label: 'lịch trình đã tạo',
+          value: data.total_trips_count ?? 0,
+          icon: Map,
+          color: 'text-emerald-500',
+        },
+      ];
+    }
+  } catch (err) {
+    console.error('Lỗi tải thống kê:', err);
+  }
+};
 
 // ─── Mock Data: Featured Itineraries ─────────────────────────────
 const featuredTrips = ref([
@@ -452,7 +480,8 @@ const scrollFeatured = (direction: 'left' | 'right') => {
         </div>
       </div>
       <button
-        class="z-10 px-3 py-1.5 bg-white hover:bg-teal-50 text-teal-700 text-[10px] font-bold rounded-full transition-all duration-200 shadow-sm"
+        class="z-10 px-3 py-1.5 bg-white hover:bg-teal-50 text-teal-700 text-[10px] font-bold rounded-full transition-all duration-200 shadow-sm cursor-pointer"
+        @click="router.push('/trips')"
       >
         Khám phá ngay <span aria-hidden="true">→</span>
       </button>
@@ -471,8 +500,12 @@ const scrollFeatured = (direction: 'left' | 'right') => {
       <div class="col-span-3 flex flex-col gap-4">
         <!-- 2a. UNIFIED UPCOMING TRIP & CHECKLIST CARD -->
         <div class="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-          <!-- Top: Upcoming Trip Banner -->
-          <div class="relative overflow-hidden cursor-pointer group" @click="openUpcomingTrip">
+          <!-- Top: Upcoming Trip Banner (Khi có chuyến đi) -->
+          <div
+            v-if="upcomingTrip && upcomingTrip.id"
+            class="relative overflow-hidden cursor-pointer group"
+            @click="openUpcomingTrip"
+          >
             <img
               :src="upcomingTrip.coverImage"
               :alt="upcomingTrip.title"
@@ -491,22 +524,15 @@ const scrollFeatured = (direction: 'left' | 'right') => {
             <!-- Change banner image button -->
             <button
               type="button"
-              class="absolute top-4 right-28 bg-black/60 hover:bg-black/80 text-white/90 hover:text-white px-2.5 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 backdrop-blur-md border border-white/20 transition-all z-10 shadow-sm"
+              class="absolute top-4 right-28 bg-black/60 hover:bg-black/80 text-white/90 hover:text-white px-2.5 py-1 rounded-full text-[10px] font-semibold flex items-center gap-1.5 backdrop-blur-md border border-white/20 transition-all z-10 shadow-sm cursor-pointer"
               :disabled="isUploadingBanner"
               title="Đổi ảnh bìa chuyến đi"
-              @click.stop="triggerBannerInput"
+              @click.stop.prevent="triggerBannerInput"
             >
               <Loader2 v-if="isUploadingBanner" class="w-3 h-3 animate-spin" />
               <Camera v-else class="w-3 h-3" />
               <span>{{ isUploadingBanner ? 'Đang tải...' : 'Đổi ảnh' }}</span>
             </button>
-            <input
-              ref="bannerFileInput"
-              type="file"
-              accept="image/*"
-              class="hidden"
-              @change="onBannerFileSelected"
-            />
 
             <!-- Days left badge -->
             <div
@@ -555,6 +581,25 @@ const scrollFeatured = (direction: 'left' | 'right') => {
             </div>
           </div>
 
+          <!-- Empty State khi người dùng chưa có chuyến đi nào -->
+          <div
+            v-else
+            class="relative overflow-hidden p-8 bg-gradient-to-br from-slate-900 via-teal-950 to-slate-900 text-white flex flex-col items-center justify-center text-center min-h-[220px]"
+          >
+            <div class="w-12 h-12 rounded-2xl bg-teal-500/20 border border-teal-500/30 flex items-center justify-center mb-3">
+              <Compass class="w-6 h-6 text-teal-400" />
+            </div>
+            <h3 class="font-extrabold text-white text-base sm:text-lg">Chưa có chuyến đi sắp tới</h3>
+            <p class="text-white/70 text-xs mt-1 max-w-sm mb-4">Lên kế hoạch cho hành trình đầu tiên của bạn ngay hôm nay cùng Wanderflow!</p>
+            <button
+              class="px-4 py-2 bg-[#ff5b19] hover:bg-[#ea4e0f] text-white text-xs font-bold rounded-xl transition-all shadow-md active:scale-95 flex items-center gap-1.5 cursor-pointer"
+              @click.stop="openCreateTripModal"
+            >
+              <Plus class="w-4 h-4" />
+              Tạo chuyến đi mới
+            </button>
+          </div>
+
           <!-- Bottom: Checklist & Action -->
           <div class="p-6 flex flex-col">
             <!-- Header -->
@@ -572,7 +617,7 @@ const scrollFeatured = (direction: 'left' | 'right') => {
             </div>
 
             <!-- Checklist items -->
-            <div class="space-y-3">
+            <div v-if="checklist.length > 0" class="space-y-3">
               <div
                 v-for="item in checklist"
                 :key="item.id"
@@ -610,7 +655,6 @@ const scrollFeatured = (direction: 'left' | 'right') => {
 
                 <!-- Delete item on hover -->
                 <button
-                  v-if="checklist.length > 1"
                   class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-500 transition-opacity p-1 text-xs"
                   title="Xóa mục này"
                   @click.stop="removeChecklistItem(item.id)"
@@ -618,6 +662,14 @@ const scrollFeatured = (direction: 'left' | 'right') => {
                   <X class="w-3.5 h-3.5" />
                 </button>
               </div>
+            </div>
+
+            <!-- Empty state when no items -->
+            <div
+              v-else
+              class="py-4 px-3 text-center text-xs text-slate-400 italic bg-slate-50/60 rounded-xl border border-dashed border-slate-200/80 my-1"
+            >
+              Chưa có đồ dùng nào. Hãy nhập đồ dùng bên dưới để chuẩn bị nhé!
             </div>
 
             <!-- Add new item quick input -->
@@ -656,7 +708,10 @@ const scrollFeatured = (direction: 'left' | 'right') => {
               <Map class="w-4 h-4 text-brand-blue" />
               <h3 class="font-bold text-slate-900 text-sm">Kế hoạch chuyến đi</h3>
             </div>
-            <button class="text-brand-blue text-xs font-semibold hover:underline">
+            <button
+              class="text-brand-blue text-xs font-semibold hover:underline cursor-pointer"
+              @click="router.push('/trips')"
+            >
               Xem chi tiết →
             </button>
           </div>
@@ -859,20 +914,23 @@ const scrollFeatured = (direction: 'left' | 'right') => {
           <span class="text-[10px] font-bold text-brand-orange tracking-widest uppercase">Gợi ý cho bạn</span>
           <h3 class="font-bold text-slate-900 text-sm mt-0.5">Lịch trình nổi bật</h3>
         </div>
-        <button class="text-brand-blue text-xs font-semibold hover:underline">
+        <button
+          class="text-brand-blue text-xs font-semibold hover:underline cursor-pointer"
+          @click="router.push('/trips')"
+        >
           Khám phá
         </button>
       </div>
       <div class="relative">
         <!-- Scroll buttons -->
         <button
-          class="absolute -left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white shadow-lg border border-slate-100 rounded-full flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-xl transition-all duration-200"
+          class="absolute -left-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white shadow-lg border border-slate-100 rounded-full flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-xl transition-all duration-200 cursor-pointer"
           @click="scrollFeatured('left')"
         >
           <ChevronLeft class="w-4 h-4" />
         </button>
         <button
-          class="absolute -right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white shadow-lg border border-slate-100 rounded-full flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-xl transition-all duration-200"
+          class="absolute -right-2 top-1/2 -translate-y-1/2 z-10 w-8 h-8 bg-white shadow-lg border border-slate-100 rounded-full flex items-center justify-center text-slate-500 hover:text-slate-700 hover:shadow-xl transition-all duration-200 cursor-pointer"
           @click="scrollFeatured('right')"
         >
           <ChevronRight class="w-4 h-4" />
@@ -888,6 +946,7 @@ const scrollFeatured = (direction: 'left' | 'right') => {
             :key="trip.id"
             class="flex-shrink-0 w-52 bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden hover:shadow-md transition-all duration-200 cursor-pointer group"
             style="scroll-snap-align: start"
+            @click="router.push('/trips')"
           >
             <div class="relative h-28 overflow-hidden">
               <img
@@ -921,6 +980,16 @@ const scrollFeatured = (direction: 'left' | 'right') => {
   </div>
 
   <CreateTripModal v-if="createTripModalOpen" @close="createTripModalOpen = false" @created="onTripCreated" />
+
+  <!-- Hidden input for banner upload (placed outside clickable card to avoid event bubbling) -->
+  <input
+    ref="bannerFileInput"
+    type="file"
+    accept="image/*"
+    class="hidden"
+    @click.stop
+    @change="onBannerFileSelected"
+  />
 </template>
 
 <style scoped>

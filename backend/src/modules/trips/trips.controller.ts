@@ -42,6 +42,11 @@ export class TripsController {
     return this.tripsService.findUpcoming(userId);
   }
 
+  @Get('statistics')
+  async getStatistics(@CurrentUser('id') userId: string) {
+    return this.tripsService.getStatistics(userId);
+  }
+
   @Get(':id')
   async findOne(
     @CurrentUser('id') userId: string,
