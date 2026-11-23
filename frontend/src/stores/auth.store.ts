@@ -49,11 +49,17 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function logout() {
-    token.value = null;
-    user.value = null;
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user_info');
+  async function logout() {
+    try {
+      await apiClient.post('/auth/logout');
+    } catch {
+      // Swallowed: even if server is offline, client clears credentials
+    } finally {
+      token.value = null;
+      user.value = null;
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('user_info');
+    }
   }
 
   return {

@@ -9,6 +9,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import type { Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -190,7 +191,46 @@ export class AuthService {
     return { message: 'Đã gửi lại email xác nhận kích hoạt tài khoản thành công. Vui lòng kiểm tra hòm thư!' };
   }
 
-  async login(dto: LoginDto) {
+  async createSession(user: any, res?: Response) {
+    // 1. Sinh Access Token (15-30 phút theo chuẩn bảo mật, chứa sub, email, role)
+    const payload = { sub: user.id, email: user.email, role: 'USER' };
+    const accessToken = await this.jwtService.signAsync(payload, {
+      expiresIn: (process.env.JWT_ACCESS_EXPIRES_IN || '30m') as any,
+    });
+
+    // 2. Sinh Refresh Token ngẫu nhiên và lưu vào CSDL (refresh_tokens)
+    const rawRefreshToken = crypto.randomBytes(40).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
+    const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 ngày
+
+    await this.prisma.refreshToken.create({
+      data: {
+        user_id: user.id,
+        token_hash: tokenHash,
+        expires_at: refreshExpiresAt,
+      },
+    });
+
+    // 3. Gán Refresh Token vào HttpOnly Cookie nếu có response object
+    if (res && typeof res.cookie === 'function') {
+      const isProd = process.env.NODE_ENV === 'production';
+      res.cookie('refresh_token', rawRefreshToken, {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: isProd ? 'strict' : 'lax',
+        path: '/',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+
+    const { password_hash: _password_hash, verify_token: _verify_token, ...safeUser } = user;
+    return {
+      user: safeUser,
+      accessToken,
+    };
+  }
+
+  async login(dto: LoginDto, res?: Response) {
     const email = dto.email.toLowerCase().trim();
 
     // 1. Tìm user theo email
@@ -213,20 +253,11 @@ export class AuthService {
       throw new UnauthorizedException('Tài khoản của bạn chưa được kích hoạt email. Vui lòng kiểm tra hộp thư để bấm xác nhận trước khi đăng nhập!');
     }
 
-    // 4. Sinh JWT access token
-    const payload = { sub: user.id, email: user.email };
-    const accessToken = await this.jwtService.signAsync(payload);
-
-    // 5. Ẩn password_hash trước khi trả về
-    const { password_hash: _password_hash, verify_token: _verify_token, ...safeUser } = user;
-
-    return {
-      user: safeUser,
-      accessToken,
-    };
+    // 4. Cấp cặp Access Token & Refresh Token (lưu DB + gán HttpOnly Cookie)
+    return this.createSession(user, res);
   }
 
-  async googleLogin(dto: GoogleLoginDto) {
+  async googleLogin(dto: GoogleLoginDto, res?: Response) {
     let email = dto.email?.toLowerCase().trim();
     let fullName = dto.full_name?.trim() || 'Người dùng Google';
     let avatarUrl = dto.avatar_url;
@@ -293,15 +324,74 @@ export class AuthService {
       });
     }
 
-    // 3. Cấp access token
-    const payload = { sub: user.id, email: user.email };
-    const accessToken = await this.jwtService.signAsync(payload);
+    // 3. Cấp cặp Access Token & Refresh Token
+    return this.createSession(user, res);
+  }
 
-    const { password_hash: _pw, verify_token: _vt, ...safeUser } = user;
-    return {
-      user: safeUser,
-      accessToken,
-    };
+  async refreshToken(rawRefreshToken: string | undefined, res?: Response) {
+    if (!rawRefreshToken) {
+      throw new UnauthorizedException('Không tìm thấy phiên làm việc (Refresh Token)');
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
+
+    const tokenRecord = await this.prisma.refreshToken.findFirst({
+      where: {
+        token_hash: tokenHash,
+        is_revoked: false,
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!tokenRecord) {
+      throw new UnauthorizedException('Phiên đăng nhập không hợp lệ hoặc đã bị thu hồi');
+    }
+
+    if (new Date() > tokenRecord.expires_at) {
+      await this.prisma.refreshToken.update({
+        where: { id: tokenRecord.id },
+        data: { is_revoked: true },
+      });
+      throw new UnauthorizedException('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại!');
+    }
+
+    // Thu hồi refresh token cũ (Token Rotation)
+    await this.prisma.refreshToken.update({
+      where: { id: tokenRecord.id },
+      data: { is_revoked: true },
+    });
+
+    // Tạo phiên mới và set cookie mới
+    return this.createSession(tokenRecord.user, res);
+  }
+
+  async logout(rawRefreshToken: string | undefined, res?: Response) {
+    if (rawRefreshToken) {
+      const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
+      await this.prisma.refreshToken.updateMany({
+        where: {
+          token_hash: tokenHash,
+          is_revoked: false,
+        },
+        data: {
+          is_revoked: true,
+        },
+      });
+    }
+
+    if (res && typeof res.clearCookie === 'function') {
+      const isProd = process.env.NODE_ENV === 'production';
+      res.clearCookie('refresh_token', {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: isProd ? 'strict' : 'lax',
+        path: '/',
+      });
+    }
+
+    return { message: 'Đăng xuất thành công' };
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {

@@ -7,8 +7,15 @@ describe('AuthService', () => {
   const mockPrisma = {
     user: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+    },
+    refreshToken: {
+      create: vi.fn().mockResolvedValue({ id: 'rt-1' }),
+      findFirst: vi.fn(),
+      update: vi.fn().mockResolvedValue({ id: 'rt-1', is_revoked: true }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   };
 
@@ -28,7 +35,7 @@ describe('AuthService', () => {
     await expect(
       service.register({
         email: 'existing@test.com',
-        password: 'password123',
+        password: 'Password@123',
         full_name: 'Test',
       }),
     ).rejects.toThrow(ConflictException);
@@ -90,7 +97,7 @@ describe('AuthService', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 
-  it('should successfully login and return access token when verified', async () => {
+  it('should successfully login and return access token and create refresh token', async () => {
     const hashed = await bcrypt.hash('secret123', 10);
     mockPrisma.user.findUnique.mockResolvedValueOnce({
       id: 'user-123',
@@ -107,6 +114,7 @@ describe('AuthService', () => {
 
     expect(result.accessToken).toBe('mock-token');
     expect(result.user.email).toBe('user@test.com');
+    expect(mockPrisma.refreshToken.create).toHaveBeenCalled();
   });
 
   it('should authenticate via Google Login and return token', async () => {
@@ -116,6 +124,7 @@ describe('AuthService', () => {
       email: 'dev@gmail.com',
       full_name: 'Google User',
       google_id: 'mock_gid_dev@gmail.com',
+      is_verified: true,
     });
 
     const result = await service.googleLogin({
@@ -126,6 +135,42 @@ describe('AuthService', () => {
 
     expect(result.accessToken).toBe('mock-token');
     expect(result.user.email).toBe('dev@gmail.com');
+  });
+
+  it('should refresh token successfully when valid refresh token is provided', async () => {
+    mockPrisma.refreshToken.findFirst.mockResolvedValueOnce({
+      id: 'rt-old',
+      user_id: 'user-123',
+      is_revoked: false,
+      expires_at: new Date(Date.now() + 1000 * 60 * 60), // not expired
+      user: {
+        id: 'user-123',
+        email: 'user@test.com',
+        full_name: 'Wanderer',
+      },
+    });
+
+    const result = await service.refreshToken('valid-token-string');
+    expect(result.accessToken).toBe('mock-token');
+    expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'rt-old' },
+        data: { is_revoked: true },
+      }),
+    );
+  });
+
+  it('should throw UnauthorizedException when refreshing with missing or invalid token', async () => {
+    await expect(service.refreshToken(undefined)).rejects.toThrow(UnauthorizedException);
+
+    mockPrisma.refreshToken.findFirst.mockResolvedValueOnce(null);
+    await expect(service.refreshToken('invalid-token')).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('should logout and revoke token in database', async () => {
+    const result = await service.logout('some-token-to-revoke');
+    expect(result.message).toBe('Đăng xuất thành công');
+    expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalled();
   });
 
   it('should generate OTP on forgotPassword', async () => {

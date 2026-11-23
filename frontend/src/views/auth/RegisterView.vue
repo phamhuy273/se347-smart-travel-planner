@@ -57,8 +57,8 @@ const validate = () => {
   } else if (form.password.length < 8) {
     errors.password = 'Mật khẩu phải có tối thiểu 8 ký tự';
     isValid = false;
-  } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(form.password)) {
-    errors.password = 'Mật khẩu cần ít nhất 1 chữ hoa, 1 chữ thường và 1 chữ số';
+  } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z\d])/.test(form.password)) {
+    errors.password = 'Mật khẩu cần ít nhất 1 chữ hoa, 1 chữ thường, 1 chữ số và 1 ký tự đặc biệt';
     isValid = false;
   }
 
