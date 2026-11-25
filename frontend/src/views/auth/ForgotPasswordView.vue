@@ -185,8 +185,8 @@ const validateStep3 = () => {
   } else if (form.newPassword.length < 8) {
     errors.newPassword = 'Mật khẩu phải có tối thiểu 8 ký tự';
     isValid = false;
-  } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(form.newPassword)) {
-    errors.newPassword = 'Mật khẩu cần ít nhất 1 chữ hoa, 1 chữ thường và 1 chữ số';
+  } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z\d])/.test(form.newPassword)) {
+    errors.newPassword = 'Mật khẩu cần ít nhất 1 chữ hoa, 1 chữ thường, 1 chữ số và 1 ký tự đặc biệt';
     isValid = false;
   }
 
@@ -503,7 +503,7 @@ const handleResetPassword = async () => {
                   <input
                     v-model="form.newPassword"
                     :type="showNewPassword ? 'text' : 'password'"
-                    placeholder="Tối thiểu 8 ký tự (hoa, thường, số)"
+                    placeholder="Tối thiểu 8 ký tự (hoa, thường, số, ký tự đặc biệt)"
                     class="w-full pl-10 pr-10 py-2.5 text-xs rounded-xl border transition focus:outline-none focus:ring-2 placeholder:text-slate-400"
                     :class="errors.newPassword ? 'border-red-300 focus:border-red-500 focus:ring-red-100' : 'border-slate-200 focus:border-brand-orange focus:ring-orange-100'"
                   />

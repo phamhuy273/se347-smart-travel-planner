@@ -21,16 +21,28 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 
-function extractRefreshToken(req: Request): string | undefined {
+export function extractRefreshToken(req: Request): string | undefined {
   const cookieHeader = req.headers.cookie;
   if (!cookieHeader) return undefined;
-  const cookies = Object.fromEntries(
-    cookieHeader.split(';').map((c) => {
-      const [k, ...v] = c.trim().split('=');
-      return [k, decodeURIComponent(v.join('='))];
-    }),
-  );
-  return cookies['refresh_token'];
+
+  for (const rawCookie of cookieHeader.split(';')) {
+    const eqIndex = rawCookie.indexOf('=');
+    if (eqIndex === -1) continue;
+
+    const key = rawCookie.slice(0, eqIndex).trim();
+    if (key !== 'refresh_token') continue;
+
+    const rawValue = rawCookie.slice(eqIndex + 1).trim();
+    if (!rawValue) return undefined;
+
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return undefined;
+    }
+  }
+
+  return undefined;
 }
 
 @Controller('auth')
@@ -43,8 +55,12 @@ export class AuthController {
   }
 
   @Get('verify-email')
-  async verifyEmail(@Query('token') token: string, @Query('email') email: string) {
-    return this.authService.verifyEmail(token, email);
+  async verifyEmail(
+    @Query('token') token: string,
+    @Query('email') email: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.authService.verifyEmail(token, email, res);
   }
 
   @HttpCode(HttpStatus.OK)
