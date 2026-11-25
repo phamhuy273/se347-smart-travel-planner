@@ -6,6 +6,7 @@ import {
   IsInt,
   IsString,
   Length,
+  Max,
   Min,
   ValidateIf,
 } from 'class-validator';
@@ -46,13 +47,15 @@ export class UpdateChecklistDto {
   is_checked?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Thứ tự hiển thị (số nguyên >= 0)',
+    description: 'Thứ tự hiển thị (số nguyên từ 0 đến 1000000)',
     example: 0,
     minimum: 0,
+    maximum: 1000000,
   })
   @ValidateIf((_, value) => value !== undefined)
   @Transform(({ obj, key }) => obj[key])
   @IsInt({ message: 'order_index phải là số nguyên' })
   @Min(0, { message: 'order_index phải lớn hơn hoặc bằng 0' })
+  @Max(1000000, { message: 'order_index không được vượt quá 1000000' })
   order_index?: number;
 }

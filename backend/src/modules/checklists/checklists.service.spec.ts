@@ -201,12 +201,24 @@ describe('Checklists DTO ValidationPipe', () => {
       validateBody(UpdateChecklistDto, { order_index: -1 }),
     ).rejects.toThrow(BadRequestException);
 
+    await expect(
+      validateBody(UpdateChecklistDto, { order_index: 1000001 }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      validateBody(UpdateChecklistDto, { order_index: 1.5 }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      validateBody(UpdateChecklistDto, { order_index: null }),
+    ).rejects.toThrow(BadRequestException);
+
     await expect(validateQuery({ category: 'UNKNOWN' })).rejects.toThrow(
       BadRequestException,
     );
   });
 
-  it('accepts valid trimmed item_name, valid categories, null category, real boolean is_checked, and empty query category', async () => {
+  it('accepts valid trimmed item_name, valid categories, null category, real boolean is_checked, boundary order_index, and empty query category', async () => {
     const created = await validateBody(CreateChecklistDto, {
       item_name: '  Kem chống nắng  ',
       category: ChecklistCategory.PERSONAL,
@@ -225,6 +237,13 @@ describe('Checklists DTO ValidationPipe', () => {
       category: null,
       is_checked: false,
       order_index: 0,
+    });
+
+    const maxOrderIndex = await validateBody(UpdateChecklistDto, {
+      order_index: 1000000,
+    });
+    expect(maxOrderIndex).toEqual({
+      order_index: 1000000,
     });
 
     const queryEmpty = await validateQuery({ category: '' });
