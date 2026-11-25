@@ -3,6 +3,7 @@ import axios from 'axios';
 const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api/v1';
 
 export const AUTH_SESSION_EVENT = 'auth:session-changed';
+const AUTH_REQUEST_TIMEOUT_MS = 10_000;
 
 export function getSafeRedirect(rawRedirect: unknown): string {
   if (typeof rawRedirect !== 'string') return '/dashboard';
@@ -36,6 +37,38 @@ const apiClient = axios.create({
   },
   withCredentials: true,
 });
+
+// Single source of truth for auth session (in-memory only; never stored in Web Storage)
+let accessToken: string | null = null;
+let currentUser: Record<string, any> | null = null;
+let isGuestSession = false;
+let sessionClearedCount = 0;
+let isSwitchingUser = false;
+let refreshPromise: Promise<string> | null = null;
+
+function clearLegacyAuthStorage() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage?.removeItem('access_token');
+    window.localStorage?.removeItem('user_info');
+  } catch {
+    // Ignore storage errors in restricted environments
+  }
+}
+
+clearLegacyAuthStorage();
+
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
+export function getSessionUser<T = Record<string, any>>(): T | null {
+  return (currentUser as T) ?? null;
+}
+
+export function hasActiveSession(): boolean {
+  return !!accessToken;
+}
 
 function unwrapApiError(error: any) {
   return error?.response?.data || error;
@@ -87,16 +120,6 @@ function isPublicAuthEndpoint(url?: string, reqBaseURL?: string): boolean {
   return PUBLIC_AUTH_PATHS.has(normalizeEndpointPath(url, reqBaseURL));
 }
 
-function readStoredUser() {
-  const raw = localStorage.getItem('user_info');
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function dispatchSessionChanged(token: string | null, user: any) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
@@ -107,36 +130,94 @@ function dispatchSessionChanged(token: string | null, user: any) {
   }
 }
 
-function clearSessionAndRedirect() {
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('user_info');
+export function setAuthSession(token: string, user: Record<string, any> | null) {
+  accessToken = token;
+  currentUser = user;
+  isGuestSession = false;
+  isSwitchingUser = false;
+  refreshPromise = null;
+  dispatchSessionChanged(accessToken, currentUser);
+}
+
+export function setSessionUser(user: Record<string, any> | null) {
+  currentUser = user;
+  dispatchSessionChanged(accessToken, currentUser);
+}
+
+function clearLocalSession(options: { markGuest?: boolean } = {}) {
+  accessToken = null;
+  currentUser = null;
+  isSwitchingUser = false;
+  refreshPromise = null;
+  if (options.markGuest) {
+    isGuestSession = true;
+  }
+  sessionClearedCount += 1;
   dispatchSessionChanged(null, null);
+}
+
+function isPublicPagePath(pathname: string): boolean {
+  const normalizedPath =
+    pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname || '/';
+  const publicPaths = ['/login', '/register', '/', '/verify-email', '/forgot-password'];
+  return publicPaths.includes(normalizedPath);
+}
+
+function clearSessionAndRedirect() {
+  clearLocalSession({ markGuest: true });
 
   if (typeof window === 'undefined') return;
 
-  const currentPath = window.location.pathname;
-  const normalizedPath =
-    currentPath.length > 1 ? currentPath.replace(/\/+$/, '') : currentPath;
-  const publicPaths = ['/login', '/register', '/', '/verify-email', '/forgot-password'];
-  if (!publicPaths.includes(normalizedPath)) {
+  if (!isPublicPagePath(window.location.pathname)) {
     const currentTarget = `${window.location.pathname}${window.location.search}`;
     window.location.href = `/login?redirect=${encodeURIComponent(getSafeRedirect(currentTarget))}`;
   }
 }
 
-// Request Interceptor: Attach Access Token from localStorage
+function createAuthChannel(): BroadcastChannel | null {
+  if (typeof BroadcastChannel !== 'function') return null;
+  try {
+    return new BroadcastChannel('auth');
+  } catch {
+    return null;
+  }
+}
+
+const authChannel = createAuthChannel();
+
+if (authChannel) {
+  authChannel.onmessage = (event: MessageEvent) => {
+    if (event.data?.type === 'logout') {
+      clearSessionAndRedirect();
+    }
+  };
+}
+
+function broadcastLogout() {
+  try {
+    if (authChannel) {
+      authChannel.postMessage({ type: 'logout' });
+    } else if (typeof BroadcastChannel === 'function') {
+      const channel = new BroadcastChannel('auth');
+      channel.postMessage({ type: 'logout' });
+      channel.close();
+    }
+  } catch {
+    // Ignore BroadcastChannel errors
+  }
+}
+
+// Request Interceptor: Attach Access Token from module memory
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      setAuthorizationHeader(config, token);
+    (config as any)._sessionCount = sessionClearedCount;
+    if (accessToken) {
+      setAuthorizationHeader(config, accessToken);
     }
     return config;
   },
   (error) => Promise.reject(error),
 );
-
-let refreshPromise: Promise<string> | null = null;
 
 export function withAuthLock<T>(task: () => Promise<T>): Promise<T> {
   if (typeof navigator !== 'undefined' && typeof navigator.locks?.request === 'function') {
@@ -145,18 +226,31 @@ export function withAuthLock<T>(task: () => Promise<T>): Promise<T> {
   return task();
 }
 
-async function performRefresh(usedToken: string | null): Promise<string> {
-  const runRefresh = async (): Promise<string> => {
-    const currentToken = localStorage.getItem('access_token');
+interface RefreshOptions {
+  redirectOnAuthFailure: boolean;
+  clearedCountAtStart: number;
+}
 
-    if (!currentToken) {
-      clearSessionAndRedirect();
+async function performRefresh(
+  usedToken: string | null,
+  options: RefreshOptions,
+): Promise<string> {
+  const runRefresh = async (): Promise<string> => {
+    if (isSwitchingUser) {
+      throw new Error('Phiên đăng nhập đang chuyển tài khoản');
+    }
+
+    if (sessionClearedCount !== options.clearedCountAtStart) {
       throw new Error('Phiên đăng nhập đã hết hạn');
     }
 
-    if (usedToken && currentToken !== usedToken) {
-      dispatchSessionChanged(currentToken, readStoredUser());
-      return currentToken;
+    if (accessToken && accessToken !== usedToken) {
+      return accessToken;
+    }
+
+    // Empty token because the tab logged out/cleared session (vs initial bootstrap where usedToken === null && !isGuestSession)
+    if (!accessToken && (usedToken !== null || isGuestSession)) {
+      throw new Error('Phiên đăng nhập đã hết hạn');
     }
 
     try {
@@ -164,8 +258,12 @@ async function performRefresh(usedToken: string | null): Promise<string> {
       const refreshResponse = await axios.post(
         `${baseURL}/auth/refresh-token`,
         {},
-        { withCredentials: true },
+        { withCredentials: true, timeout: AUTH_REQUEST_TIMEOUT_MS },
       );
+
+      if (sessionClearedCount !== options.clearedCountAtStart) {
+        throw new Error('Phiên đăng nhập đã hết hạn');
+      }
 
       const resData = refreshResponse.data?.data || refreshResponse.data;
       const newAccessToken = resData?.accessToken;
@@ -174,23 +272,93 @@ async function performRefresh(usedToken: string | null): Promise<string> {
         throw new Error('Không nhận được Access Token mới');
       }
 
-      localStorage.setItem('access_token', newAccessToken);
-      if (resData.user) {
-        localStorage.setItem('user_info', JSON.stringify(resData.user));
+      const previousUserId = currentUser?.id != null ? String(currentUser.id) : null;
+      const nextUser = resData?.user ?? currentUser;
+      const nextUserId = nextUser?.id != null ? String(nextUser.id) : null;
+      const isUserSwitched = Boolean(
+        previousUserId && nextUserId && previousUserId !== nextUserId,
+      );
+
+      accessToken = newAccessToken;
+      currentUser = nextUser;
+      isGuestSession = false;
+      dispatchSessionChanged(accessToken, currentUser);
+
+      if (isUserSwitched) {
+        isSwitchingUser = true;
+        if (typeof window !== 'undefined') {
+          window.location.href = '/dashboard';
+        }
+        const switchErr: any = new Error('Phiên đăng nhập đã chuyển sang tài khoản khác');
+        switchErr.__userSwitched = true;
+        throw switchErr;
       }
-      dispatchSessionChanged(newAccessToken, resData.user ?? readStoredUser());
 
       return newAccessToken;
     } catch (refreshErr: any) {
-      const status = refreshErr?.response?.status;
-      if (status === 401 || status === 403) {
-        clearSessionAndRedirect();
+      if (!refreshErr?.__userSwitched) {
+        const status = refreshErr?.response?.status;
+        if (status === 401 || status === 403) {
+          if (options.redirectOnAuthFailure) {
+            clearSessionAndRedirect();
+          } else {
+            clearLocalSession({ markGuest: true });
+          }
+        }
       }
       throw refreshErr;
     }
   };
 
   return withAuthLock(runRefresh);
+}
+
+export async function ensureSession(): Promise<boolean> {
+  if (isSwitchingUser) return false;
+  if (accessToken) return true;
+  if (isGuestSession) return false;
+
+  const clearedCountAtStart = sessionClearedCount;
+  if (!refreshPromise) {
+    const nextRefreshPromise = performRefresh(null, {
+      redirectOnAuthFailure: false,
+      clearedCountAtStart,
+    }).finally(() => {
+      if (refreshPromise === nextRefreshPromise) {
+        refreshPromise = null;
+      }
+    });
+    refreshPromise = nextRefreshPromise;
+  }
+
+  try {
+    await refreshPromise;
+    return !!accessToken && !isSwitchingUser;
+  } catch {
+    return false;
+  }
+}
+
+export async function logoutSession(): Promise<void> {
+  let cleared = false;
+  try {
+    await withAuthLock(async () => {
+      try {
+        await apiClient.post('/auth/logout', {}, { timeout: AUTH_REQUEST_TIMEOUT_MS });
+      } catch {
+        // Swallowed: even if server is offline or times out, client clears credentials
+      } finally {
+        clearLocalSession({ markGuest: true });
+        cleared = true;
+      }
+    });
+  } catch {
+    if (!cleared) {
+      clearLocalSession({ markGuest: true });
+    }
+  } finally {
+    broadcastLogout();
+  }
 }
 
 // Response Interceptor: Handle Global 401 with Silent Refresh
@@ -213,15 +381,30 @@ apiClient.interceptors.response.use(
 
     originalRequest._retry = true;
     const usedToken = getBearerToken(originalRequest.headers);
+    const clearedCountAtStart =
+      (originalRequest as any)._sessionCount ?? sessionClearedCount;
 
     if (!refreshPromise) {
-      refreshPromise = performRefresh(usedToken).finally(() => {
-        refreshPromise = null;
+      const nextRefreshPromise = performRefresh(usedToken, {
+        redirectOnAuthFailure: true,
+        clearedCountAtStart,
+      }).finally(() => {
+        if (refreshPromise === nextRefreshPromise) {
+          refreshPromise = null;
+        }
       });
+      refreshPromise = nextRefreshPromise;
     }
 
     try {
       const newAccessToken = await refreshPromise;
+      if (
+        isSwitchingUser ||
+        sessionClearedCount !== clearedCountAtStart ||
+        !accessToken
+      ) {
+        return Promise.reject(unwrapApiError(new Error('Phiên đăng nhập đã hết hạn')));
+      }
       setAuthorizationHeader(originalRequest, newAccessToken);
       return apiClient(originalRequest);
     } catch (refreshErr) {
