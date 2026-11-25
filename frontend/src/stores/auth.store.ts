@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import apiClient, { AUTH_SESSION_EVENT } from '../services/api.client';
+import apiClient, { AUTH_SESSION_EVENT, withAuthLock } from '../services/api.client';
 
 export interface UserInfo {
   id: string;
@@ -81,16 +81,18 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
-    try {
-      await apiClient.post('/auth/logout');
-    } catch {
-      // Swallowed: even if server is offline, client clears credentials
-    } finally {
-      token.value = null;
-      user.value = null;
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user_info');
-    }
+    await withAuthLock(async () => {
+      try {
+        await apiClient.post('/auth/logout');
+      } catch {
+        // Swallowed: even if server is offline, client clears credentials
+      } finally {
+        token.value = null;
+        user.value = null;
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user_info');
+      }
+    });
   }
 
   return {

@@ -138,6 +138,13 @@ apiClient.interceptors.request.use(
 
 let refreshPromise: Promise<string> | null = null;
 
+export function withAuthLock<T>(task: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== 'undefined' && typeof navigator.locks?.request === 'function') {
+    return navigator.locks.request('auth-refresh', () => task());
+  }
+  return task();
+}
+
 async function performRefresh(usedToken: string | null): Promise<string> {
   const runRefresh = async (): Promise<string> => {
     const currentToken = localStorage.getItem('access_token');
@@ -183,10 +190,7 @@ async function performRefresh(usedToken: string | null): Promise<string> {
     }
   };
 
-  if (typeof navigator !== 'undefined' && typeof navigator.locks?.request === 'function') {
-    return navigator.locks.request('auth-refresh', runRefresh);
-  }
-  return runRefresh();
+  return withAuthLock(runRefresh);
 }
 
 // Response Interceptor: Handle Global 401 with Silent Refresh
