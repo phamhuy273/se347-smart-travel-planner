@@ -7,6 +7,7 @@ import { UploadModule } from './common/upload/upload.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TripsModule } from './modules/trips/trips.module';
 import { PlacesModule } from './modules/places/places.module';
+import { ChecklistsModule } from './modules/checklists/checklists.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { PlacesModule } from './modules/places/places.module';
     AuthModule,
     TripsModule,
     PlacesModule,
+    ChecklistsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

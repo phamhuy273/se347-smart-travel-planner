@@ -1,0 +1,7 @@
+export enum ChecklistCategory {
+  CLOTHING = 'CLOTHING',
+  PERSONAL = 'PERSONAL',
+  ELECTRONICS = 'ELECTRONICS',
+  MEDICAL = 'MEDICAL',
+  DOCUMENTS = 'DOCUMENTS',
+}
