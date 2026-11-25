@@ -246,15 +246,8 @@ export class AuthService {
     };
   }
 
-  async createSession(
-    user: any,
-    res?: Response,
-    tx?: Prisma.TransactionClient,
-  ) {
-    const { rawRefreshToken, ...session } = await this.issueSessionTokens(
-      user,
-      tx ?? this.prisma,
-    );
+  async createSession(user: any, res?: Response) {
+    const { rawRefreshToken, ...session } = await this.issueSessionTokens(user);
 
     // 3. Gán Refresh Token vào HttpOnly Cookie nếu có response object
     this.setRefreshTokenCookie(res, rawRefreshToken);
