@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import MainLayout from '@/layouts/MainLayout.vue';
 import PlannerLayout from '@/layouts/PlannerLayout.vue';
+import { getSafeRedirect } from '@/services/api.client';
 
 const routes: Array<RouteRecordRaw> = [
   // 1. Public Routes
@@ -93,13 +94,13 @@ router.beforeEach((to, _from, next) => {
     // Chưa đăng nhập mà truy cập trang bảo vệ -> redirect về login kèm redirect query
     return next({
       path: '/login',
-      query: { redirect: to.fullPath },
+      query: { redirect: getSafeRedirect(to.fullPath) },
     });
   }
 
   if (guestOnly && token) {
-    // Đã đăng nhập rồi mà vào login/register/forgot-password -> redirect vào dashboard
-    return next('/dashboard');
+    // Đã đăng nhập rồi mà vào login/register/forgot-password -> redirect theo query hợp lệ hoặc dashboard
+    return next(getSafeRedirect(to.query.redirect));
   }
 
   next();

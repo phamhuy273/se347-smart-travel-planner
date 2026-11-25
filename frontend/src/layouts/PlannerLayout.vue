@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { useAuthStore } from '@/stores/auth.store';
 import {
   Home,
   Map,
@@ -14,12 +15,18 @@ import dashboardBg from '@/assets/backgrounds/dashboard-bg.png';
 
 const router = useRouter();
 const route = useRoute();
+const authStore = useAuthStore();
 
 const showUserMenu = ref(false);
 
-const user = ref({
-  name: 'Pham Huy',
-  email: 'phamhuy@example.com',
+const userName = computed(() => authStore.displayName);
+const userEmail = computed(() => authStore.user?.email ?? '');
+const userInitials = computed(() => {
+  const parts = userName.value.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  return (parts[0]?.slice(0, 2) || 'WF').toUpperCase();
 });
 
 const navItems = [
@@ -28,9 +35,8 @@ const navItems = [
   { name: 'Chuyến đi của tôi', path: '/trips', icon: Compass },
 ];
 
-const handleLogout = () => {
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('user_info');
+const handleLogout = async () => {
+  await authStore.logout();
   router.push('/login');
 };
 </script>
@@ -92,9 +98,9 @@ const handleLogout = () => {
             @click="showUserMenu = !showUserMenu"
           >
             <div class="w-7 h-7 rounded-full bg-[#0D9488] text-white flex items-center justify-center font-bold text-xs ring-2 ring-emerald-500/20">
-              PH
+              {{ userInitials }}
             </div>
-            <span class="text-xs font-bold text-slate-800 hidden sm:inline">{{ user.name }}</span>
+            <span class="text-xs font-bold text-slate-800 hidden sm:inline">{{ userName }}</span>
             <ChevronDown class="w-3.5 h-3.5 text-slate-400" />
           </button>
 
@@ -104,7 +110,7 @@ const handleLogout = () => {
           >
             <div class="px-4 py-2 border-b border-slate-100">
               <p class="text-[11px] text-slate-400">Đăng nhập với</p>
-              <p class="text-xs font-bold text-slate-900 truncate">{{ user.email }}</p>
+              <p class="text-xs font-bold text-slate-900 truncate">{{ userEmail }}</p>
             </div>
             <button
               class="w-full px-4 py-2 text-left text-xs text-red-600 hover:bg-red-50 flex items-center gap-2 transition"

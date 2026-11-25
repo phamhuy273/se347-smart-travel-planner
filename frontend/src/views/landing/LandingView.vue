@@ -130,6 +130,18 @@ const destinations = [
   },
 ];
 
+const isLoggingOut = ref(false);
+
+const handleLogout = async () => {
+  if (isLoggingOut.value) return;
+  isLoggingOut.value = true;
+  try {
+    await authStore.logout();
+  } finally {
+    isLoggingOut.value = false;
+  }
+};
+
 const handleGetStarted = () => {
   if (authStore.isLoggedIn) {
     router.push('/dashboard');
@@ -238,12 +250,13 @@ const handleGetStarted = () => {
               <span>{{ authStore.displayName }}</span>
             </router-link>
             <button
+              :disabled="isLoggingOut"
               :class="[
-                'rounded-full border border-slate-200 bg-white hover:bg-red-50 text-slate-500 hover:text-red-600 transition-all duration-500 ease-out',
+                'rounded-full border border-slate-200 bg-white hover:bg-red-50 text-slate-500 hover:text-red-600 transition-all duration-500 ease-out disabled:opacity-60',
                 isScrolled ? 'p-1.5' : 'p-2'
               ]"
               title="Đăng xuất"
-              @click="authStore.logout()"
+              @click="handleLogout"
             >
               <LogOut class="w-3.5 h-3.5" />
             </button>

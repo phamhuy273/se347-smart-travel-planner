@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import apiClient from '../services/api.client';
+import apiClient, { AUTH_SESSION_EVENT } from '../services/api.client';
 
 export interface UserInfo {
   id: string;
@@ -14,13 +14,45 @@ export interface UserInfo {
   is_verified?: boolean;
 }
 
+function parseStoredUser(raw: string | null): UserInfo | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+let hasBoundSyncListeners = false;
+let activeSyncHandler: (() => void) | null = null;
+
+function ensureSyncListeners(syncHandler: () => void) {
+  activeSyncHandler = syncHandler;
+  if (typeof window === 'undefined' || hasBoundSyncListeners) return;
+
+  window.addEventListener(AUTH_SESSION_EVENT, () => {
+    activeSyncHandler?.();
+  });
+
+  window.addEventListener('storage', (event: StorageEvent) => {
+    if (event.key === null || event.key === 'access_token' || event.key === 'user_info') {
+      activeSyncHandler?.();
+    }
+  });
+
+  hasBoundSyncListeners = true;
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('access_token'));
-  const user = ref<UserInfo | null>(
-    localStorage.getItem('user_info')
-      ? JSON.parse(localStorage.getItem('user_info')!)
-      : null,
-  );
+  const user = ref<UserInfo | null>(parseStoredUser(localStorage.getItem('user_info')));
+
+  const syncFromStorage = () => {
+    token.value = localStorage.getItem('access_token');
+    user.value = parseStoredUser(localStorage.getItem('user_info'));
+  };
+
+  ensureSyncListeners(syncFromStorage);
 
   const isAuthenticated = () => !!token.value;
   const isLoggedIn = computed(() => !!token.value);
@@ -43,8 +75,7 @@ export const useAuthStore = defineStore('auth', () => {
       user.value = profileData;
       localStorage.setItem('user_info', JSON.stringify(profileData));
       return profileData;
-    } catch (error) {
-      logout();
+    } catch {
       return null;
     }
   }
