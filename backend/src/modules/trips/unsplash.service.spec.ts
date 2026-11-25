@@ -177,4 +177,27 @@ describe('UnsplashService', () => {
     const service = new UnsplashService();
     await expect(service.findCover('Quy Nhơn')).resolves.toBe(expectedUrl);
   });
+
+  it('never logs error.message containing the access key when fetch throws', async () => {
+    const leakyErr = new Error('Fetch failed with header Authorization: Client-ID secret-unsplash-key');
+    leakyErr.name = 'FetchError';
+    global.fetch = vi
+      .fn()
+      .mockRejectedValueOnce(leakyErr)
+      .mockRejectedValueOnce('Authorization: Client-ID secret-unsplash-key') as any;
+
+    const service = new UnsplashService();
+    const warnSpy = vi.spyOn((service as any).logger, 'warn');
+
+    await expect(service.findCover('Đà Lạt')).resolves.toBeNull();
+    await expect(service.findCover('Hà Nội')).resolves.toBeNull();
+
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    for (const call of warnSpy.mock.calls) {
+      const serialized = call.map(String).join(' ');
+      expect(serialized).not.toContain('secret-unsplash-key');
+    }
+    expect(warnSpy.mock.calls[0][0]).toContain('FetchError');
+    expect(warnSpy.mock.calls[1][0]).toContain('lỗi không xác định');
+  });
 });

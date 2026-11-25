@@ -117,7 +117,10 @@ export class UnsplashService {
       this.triggerDownloadTracking(firstPhoto?.links?.download_location, headers);
       return regularUrl;
     } catch (error: any) {
-      const reason = error?.name === 'TimeoutError' ? 'timeout' : error?.message || 'lỗi không xác định';
+      const reason =
+        typeof error?.name === 'string' && error.name.trim()
+          ? error.name.trim()
+          : 'lỗi không xác định';
       this.logger.warn(`Không thể lấy ảnh bìa Unsplash (${reason})`);
       return null;
     }
