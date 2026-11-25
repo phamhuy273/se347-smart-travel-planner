@@ -34,6 +34,9 @@ const USER_PUBLIC_SELECT = {
   updated_at: true,
 } satisfies Prisma.UserSelect;
 
+// Ân hạn 10 giây khi xoay refresh token để F5 liên tiếp trước lúc trình duyệt nhận Set-Cookie mới không bị 401
+const REFRESH_GRACE_MS = 10_000;
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -372,7 +375,7 @@ export class AuthService {
       throw new UnauthorizedException('Phiên đăng nhập không hợp lệ hoặc đã bị thu hồi');
     }
 
-    if (new Date() > tokenRecord.expires_at) {
+    if (new Date() >= tokenRecord.expires_at) {
       await this.prisma.refreshToken.updateMany({
         where: { id: tokenRecord.id, is_revoked: false },
         data: { is_revoked: true },
@@ -380,16 +383,38 @@ export class AuthService {
       throw new UnauthorizedException('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại!');
     }
 
-    // Thu hồi refresh token cũ (Token Rotation) và tạo phiên mới nguyên tử trong transaction
+    // Thu hồi sau ân hạn ngắn (Token Rotation) và tạo phiên mới nguyên tử trong transaction
     const { rawRefreshToken: nextRawRefreshToken, ...session } =
       await this.prisma.$transaction(async (tx) => {
-        const revoked = await tx.refreshToken.updateMany({
-          where: { id: tokenRecord.id, is_revoked: false },
-          data: { is_revoked: true },
+        const now = new Date();
+        const graceExpiresAt = new Date(now.getTime() + REFRESH_GRACE_MS);
+
+        const rotated = await tx.refreshToken.updateMany({
+          where: {
+            id: tokenRecord.id,
+            is_revoked: false,
+            expires_at: { gt: graceExpiresAt },
+          },
+          data: {
+            expires_at: graceExpiresAt,
+          },
         });
 
-        if (revoked.count !== 1) {
-          throw new UnauthorizedException('Phiên đăng nhập không hợp lệ hoặc đã bị thu hồi');
+        if (rotated.count !== 1) {
+          const withinGrace = await tx.refreshToken.updateMany({
+            where: {
+              id: tokenRecord.id,
+              is_revoked: false,
+              expires_at: { gt: now },
+            },
+            data: {
+              is_revoked: false,
+            },
+          });
+
+          if (withinGrace.count !== 1) {
+            throw new UnauthorizedException('Phiên đăng nhập không hợp lệ hoặc đã bị thu hồi');
+          }
         }
 
         return this.issueSessionTokens(tokenRecord.user, tx);

@@ -53,6 +53,66 @@ function createFullDbUser(overrides: Record<string, any> = {}) {
   };
 }
 
+function setupStatefulRefreshTokens(
+  mockPrisma: any,
+  mockTx: any,
+  initialRecords: Array<{
+    id: string;
+    user_id: string;
+    token_hash: string;
+    is_revoked: boolean;
+    expires_at: Date;
+    user: Record<string, any>;
+  }>,
+) {
+  const records = initialRecords.map((record) => ({ ...record }));
+
+  const matchesWhere = (record: any, where: Record<string, any> = {}) => {
+    if (where.id !== undefined && record.id !== where.id) return false;
+    if (where.user_id !== undefined && record.user_id !== where.user_id) return false;
+    if (where.token_hash !== undefined && record.token_hash !== where.token_hash) return false;
+    if (where.is_revoked !== undefined && record.is_revoked !== where.is_revoked) return false;
+    if (where.expires_at?.gt !== undefined && !(record.expires_at > where.expires_at.gt)) {
+      return false;
+    }
+    return true;
+  };
+
+  const findFirstImpl = async ({ where }: any) => {
+    const found = records.find((record) => matchesWhere(record, where));
+    return found ? { ...found } : null;
+  };
+
+  const updateManyImpl = async ({ where, data }: any) => {
+    let count = 0;
+    for (const record of records) {
+      if (matchesWhere(record, where)) {
+        Object.assign(record, data);
+        count += 1;
+      }
+    }
+    return { count };
+  };
+
+  const createImpl = async ({ data }: any) => {
+    const created = {
+      id: `rt-${records.length + 1}`,
+      is_revoked: false,
+      user: records[0]?.user ?? createFullDbUser(),
+      ...data,
+    };
+    records.push(created);
+    return created;
+  };
+
+  mockPrisma.refreshToken.findFirst.mockImplementation(findFirstImpl);
+  mockPrisma.refreshToken.updateMany.mockImplementation(updateManyImpl);
+  mockTx.refreshToken.updateMany.mockImplementation(updateManyImpl);
+  mockTx.refreshToken.create.mockImplementation(createImpl);
+
+  return records;
+}
+
 function expectSafePublicUser(user: Record<string, any>) {
   for (const key of SENSITIVE_USER_KEYS) {
     expect(user).not.toHaveProperty(key);
@@ -102,6 +162,7 @@ describe('AuthService', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     process.env.NODE_ENV = originalNodeEnv;
   });
 
@@ -208,7 +269,11 @@ describe('AuthService', () => {
     expectSafePublicUser(result.user);
   });
 
-  it('should refresh token atomically, set cookie after transaction, and return safe user', async () => {
+  it('should rotate token on first refresh by shortening expires_at to now + 10s without revoking', async () => {
+    const now = new Date('2026-06-01T00:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
     const res = {
       cookie: vi.fn(),
       clearCookie: vi.fn(),
@@ -218,18 +283,24 @@ describe('AuthService', () => {
       id: 'rt-old',
       user_id: 'user-123',
       is_revoked: false,
-      expires_at: new Date(Date.now() + 1000 * 60 * 60),
+      expires_at: new Date('2026-06-08T00:00:00.000Z'),
       user: createFullDbUser(),
     });
 
     const result = await service.refreshToken('valid-token-string', res);
+    const expectedGraceExpiresAt = new Date('2026-06-01T00:00:10.000Z');
 
     expect(result.accessToken).toBe('mock-token');
     expectSafePublicUser(result.user);
     expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockTx.refreshToken.updateMany).toHaveBeenCalledTimes(1);
     expect(mockTx.refreshToken.updateMany).toHaveBeenCalledWith({
-      where: { id: 'rt-old', is_revoked: false },
-      data: { is_revoked: true },
+      where: {
+        id: 'rt-old',
+        is_revoked: false,
+        expires_at: { gt: expectedGraceExpiresAt },
+      },
+      data: { expires_at: expectedGraceExpiresAt },
     });
     expect(mockTx.refreshToken.create).toHaveBeenCalledTimes(1);
     expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
@@ -245,7 +316,179 @@ describe('AuthService', () => {
     expect(res.clearCookie).not.toHaveBeenCalled();
   });
 
-  it('should throw 401, not create token, and not clear cookie when atomic revoke count is 0', async () => {
+  it('should allow reusing old token within 10s grace window without extending expires_at', async () => {
+    const t0 = new Date('2026-06-01T00:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(t0);
+
+    const rawOldToken = 'old-refresh-token';
+    const oldTokenHash = crypto.createHash('sha256').update(rawOldToken).digest('hex');
+    const records = setupStatefulRefreshTokens(mockPrisma, mockTx, [
+      {
+        id: 'rt-1',
+        user_id: 'user-123',
+        token_hash: oldTokenHash,
+        is_revoked: false,
+        expires_at: new Date('2026-06-08T00:00:00.000Z'),
+        user: createFullDbUser(),
+      },
+    ]);
+
+    const res1 = { cookie: vi.fn(), clearCookie: vi.fn() } as any;
+    await service.refreshToken(rawOldToken, res1);
+
+    const expectedGraceDeadline = new Date('2026-06-01T00:00:10.000Z');
+    expect(records[0].is_revoked).toBe(false);
+    expect(records[0].expires_at).toEqual(expectedGraceDeadline);
+
+    // F5 lại sau 4 giây khi trình duyệt chưa nhận được Set-Cookie mới
+    vi.advanceTimersByTime(4_000);
+    const res2 = { cookie: vi.fn(), clearCookie: vi.fn() } as any;
+    const secondResult = await service.refreshToken(rawOldToken, res2);
+
+    expect(secondResult.accessToken).toBe('mock-token');
+    expectSafePublicUser(secondResult.user);
+    expect(records[0].is_revoked).toBe(false);
+    expect(records[0].expires_at).toEqual(expectedGraceDeadline);
+    expect(mockTx.refreshToken.updateMany).toHaveBeenLastCalledWith({
+      where: {
+        id: 'rt-1',
+        is_revoked: false,
+        expires_at: { gt: new Date('2026-06-01T00:00:04.000Z') },
+      },
+      data: { is_revoked: false },
+    });
+    expect(res2.cookie).toHaveBeenCalledWith(
+      'refresh_token',
+      expect.any(String),
+      expect.objectContaining({ httpOnly: true, path: '/' }),
+    );
+    expect(records).toHaveLength(3);
+
+    // Tái sử dụng ở giây thứ 9 vẫn trong ân hạn và không gia hạn thêm
+    vi.advanceTimersByTime(5_000);
+    const res3 = { cookie: vi.fn(), clearCookie: vi.fn() } as any;
+    await service.refreshToken(rawOldToken, res3);
+    expect(records[0].expires_at).toEqual(expectedGraceDeadline);
+    expect(res3.cookie).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not extend expires_at when token already expires within 10s', async () => {
+    const t0 = new Date('2026-06-01T00:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(t0);
+
+    const rawToken = 'near-expiry-token';
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const originalExpiry = new Date('2026-06-01T00:00:05.000Z');
+    const records = setupStatefulRefreshTokens(mockPrisma, mockTx, [
+      {
+        id: 'rt-near',
+        user_id: 'user-123',
+        token_hash: tokenHash,
+        is_revoked: false,
+        expires_at: originalExpiry,
+        user: createFullDbUser(),
+      },
+    ]);
+
+    const res = { cookie: vi.fn(), clearCookie: vi.fn() } as any;
+    const result = await service.refreshToken(rawToken, res);
+
+    expect(result.accessToken).toBe('mock-token');
+    expect(records[0].expires_at).toEqual(originalExpiry);
+    expect(records[0].is_revoked).toBe(false);
+    expect(res.cookie).toHaveBeenCalledTimes(1);
+  });
+
+  it('should throw 401 and mark token revoked after 10s grace window expires', async () => {
+    const t0 = new Date('2026-06-01T00:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(t0);
+
+    const rawOldToken = 'old-refresh-token';
+    const oldTokenHash = crypto.createHash('sha256').update(rawOldToken).digest('hex');
+    const records = setupStatefulRefreshTokens(mockPrisma, mockTx, [
+      {
+        id: 'rt-1',
+        user_id: 'user-123',
+        token_hash: oldTokenHash,
+        is_revoked: false,
+        expires_at: new Date('2026-06-08T00:00:00.000Z'),
+        user: createFullDbUser(),
+      },
+    ]);
+
+    await service.refreshToken(rawOldToken, { cookie: vi.fn(), clearCookie: vi.fn() } as any);
+
+    // Trong ân hạn vẫn hợp lệ và không gia hạn
+    vi.advanceTimersByTime(5_000);
+    await service.refreshToken(rawOldToken, { cookie: vi.fn(), clearCookie: vi.fn() } as any);
+
+    // Sau 10 giây ân hạn (+1ms tính từ lần xoay đầu) -> 401 và đánh dấu revoked
+    vi.advanceTimersByTime(5_001);
+    const resLate = { cookie: vi.fn(), clearCookie: vi.fn() } as any;
+
+    await expect(service.refreshToken(rawOldToken, resLate)).rejects.toThrow(
+      UnauthorizedException,
+    );
+
+    expect(records[0].is_revoked).toBe(true);
+    expect(records).toHaveLength(3);
+    expect(resLate.cookie).not.toHaveBeenCalled();
+    expect(resLate.clearCookie).not.toHaveBeenCalled();
+  });
+
+  it('should always throw 401 for revoked token with no grace period', async () => {
+    const t0 = new Date('2026-06-01T00:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(t0);
+
+    const rawOldToken = 'old-refresh-token';
+    const oldTokenHash = crypto.createHash('sha256').update(rawOldToken).digest('hex');
+    const rawPreRevokedToken = 'pre-revoked-token';
+    const preRevokedHash = crypto.createHash('sha256').update(rawPreRevokedToken).digest('hex');
+    const records = setupStatefulRefreshTokens(mockPrisma, mockTx, [
+      {
+        id: 'rt-1',
+        user_id: 'user-123',
+        token_hash: oldTokenHash,
+        is_revoked: false,
+        expires_at: new Date('2026-06-08T00:00:00.000Z'),
+        user: createFullDbUser(),
+      },
+      {
+        id: 'rt-revoked',
+        user_id: 'user-123',
+        token_hash: preRevokedHash,
+        is_revoked: true,
+        expires_at: new Date('2026-06-08T00:00:00.000Z'),
+        user: createFullDbUser(),
+      },
+    ]);
+
+    const resRevoked = { cookie: vi.fn(), clearCookie: vi.fn() } as any;
+    await expect(service.refreshToken(rawPreRevokedToken, resRevoked)).rejects.toThrow(
+      UnauthorizedException,
+    );
+    expect(resRevoked.cookie).not.toHaveBeenCalled();
+
+    await service.refreshToken(rawOldToken, { cookie: vi.fn(), clearCookie: vi.fn() } as any);
+    expect(records[0].is_revoked).toBe(false);
+
+    // Logout trong khoảng ân hạn phải thu hồi ngay lập tức, không còn ân hạn
+    vi.advanceTimersByTime(2_000);
+    await service.logout(rawOldToken, { clearCookie: vi.fn() } as any);
+    expect(records[0].is_revoked).toBe(true);
+
+    const resAfterLogout = { cookie: vi.fn(), clearCookie: vi.fn() } as any;
+    await expect(service.refreshToken(rawOldToken, resAfterLogout)).rejects.toThrow(
+      UnauthorizedException,
+    );
+    expect(resAfterLogout.cookie).not.toHaveBeenCalled();
+  });
+
+  it('should throw 401, not create token, and not set or clear cookie when both updateMany calls return count 0', async () => {
     const res = {
       cookie: vi.fn(),
       clearCookie: vi.fn(),
@@ -258,13 +501,17 @@ describe('AuthService', () => {
       expires_at: new Date(Date.now() + 1000 * 60 * 60),
       user: createFullDbUser(),
     });
-    mockTx.refreshToken.updateMany.mockResolvedValueOnce({ count: 0 });
+    mockTx.refreshToken.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 });
 
     await expect(service.refreshToken('raced-token', res)).rejects.toThrow(
       UnauthorizedException,
     );
 
+    expect(mockTx.refreshToken.updateMany).toHaveBeenCalledTimes(2);
     expect(mockTx.refreshToken.create).not.toHaveBeenCalled();
+    expect(mockJwt.signAsync).not.toHaveBeenCalled();
     expect(res.cookie).not.toHaveBeenCalled();
     expect(res.clearCookie).not.toHaveBeenCalled();
   });
