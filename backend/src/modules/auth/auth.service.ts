@@ -151,7 +151,7 @@ export class AuthService {
     };
   }
 
-  async verifyEmail(token: string, email: string, res?: Response) {
+  async verifyEmail(token: string, email: string) {
     const trimmedEmail = (email || '').toLowerCase().trim();
     const user = await this.prisma.user.findUnique({
       where: { email: trimmedEmail },
@@ -176,11 +176,9 @@ export class AuthService {
       select: USER_PUBLIC_SELECT,
     });
 
-    const session = await this.createSession(updatedUser, res);
-
     return {
       message: 'Kích hoạt tài khoản thành công! Chào mừng bạn gia nhập WanderFlow.',
-      ...session,
+      user: this.toPublicUser(updatedUser),
     };
   }
 

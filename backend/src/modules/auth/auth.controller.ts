@@ -63,9 +63,8 @@ export class AuthController {
   async verifyEmail(
     @Query('token') token: string,
     @Query('email') email: string,
-    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.authService.verifyEmail(token, email, res);
+    return this.authService.verifyEmail(token, email);
   }
 
   @HttpCode(HttpStatus.OK)

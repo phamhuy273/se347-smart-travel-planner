@@ -371,10 +371,7 @@ describe('AuthService', () => {
     });
   });
 
-  it('should create refresh token and set cookie on verifyEmail', async () => {
-    const res = {
-      cookie: vi.fn(),
-    } as any;
+  it('should verify email and return { message, user } without creating refresh token or setting cookie', async () => {
     const publicUser = createFullDbUser({ is_verified: true });
     delete (publicUser as any).password_hash;
     delete (publicUser as any).verify_token;
@@ -389,21 +386,18 @@ describe('AuthService', () => {
       }),
     );
     mockPrisma.user.update.mockResolvedValueOnce(publicUser);
+    const setCookieSpy = vi.spyOn(service as any, 'setRefreshTokenCookie');
 
-    const result = await service.verifyEmail('verify-tok', 'user@test.com', res);
+    const result = await service.verifyEmail('verify-tok', 'user@test.com');
 
+    expect(Object.keys(result).sort()).toEqual(['message', 'user']);
     expect(result.message).toContain('Kích hoạt tài khoản thành công');
-    expect(result.accessToken).toBe('mock-token');
+    expect(result).not.toHaveProperty('accessToken');
     expectSafePublicUser(result.user);
-    expect(mockPrisma.refreshToken.create).toHaveBeenCalledTimes(1);
-    expect(res.cookie).toHaveBeenCalledWith(
-      'refresh_token',
-      expect.any(String),
-      expect.objectContaining({
-        httpOnly: true,
-        path: '/',
-      }),
-    );
+    expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    expect(mockTx.refreshToken.create).not.toHaveBeenCalled();
+    expect(mockJwt.signAsync).not.toHaveBeenCalled();
+    expect(setCookieSpy).not.toHaveBeenCalled();
   });
 
   it('should update password and revoke all active refresh tokens in a transaction on resetPassword', async () => {
@@ -681,6 +675,22 @@ describe('extractRefreshToken & AuthController cookie safety', () => {
       headers: { cookie: 'broken=%E0%A4%A; refresh_token=valid%2Dtoken' },
     } as any;
     expect(extractRefreshToken(req)).toBe('valid-token');
+  });
+
+  it('should delegate verifyEmail from controller without passing response object', async () => {
+    const expected = {
+      message: 'Kích hoạt tài khoản thành công!',
+      user: { id: 'user-123', email: 'user@test.com' },
+    };
+    const mockService = {
+      verifyEmail: vi.fn().mockResolvedValue(expected),
+    };
+    const controller = new AuthController(mockService as any);
+
+    const result = await controller.verifyEmail('verify-tok', 'user@test.com');
+
+    expect(mockService.verifyEmail).toHaveBeenCalledWith('verify-tok', 'user@test.com');
+    expect(result).toEqual(expected);
   });
 });
 
