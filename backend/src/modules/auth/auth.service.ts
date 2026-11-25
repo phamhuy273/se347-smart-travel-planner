@@ -18,6 +18,8 @@ import { GoogleLoginDto } from './dto/google-login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { MailService } from './mail.service';
 
 const USER_PUBLIC_SELECT = {
@@ -553,6 +555,103 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const data: Prisma.UserUpdateInput = {};
+
+    if (dto.full_name !== undefined) data.full_name = dto.full_name;
+    if (dto.bio !== undefined) data.bio = dto.bio;
+    if (dto.phone_number !== undefined) data.phone_number = dto.phone_number;
+    if (dto.avatar_url !== undefined) data.avatar_url = dto.avatar_url;
+
+    if (Object.keys(data).length === 0) {
+      return this.getMe(userId);
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Không tìm thấy thông tin người dùng');
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: USER_PUBLIC_SELECT,
+    });
+  }
+
+  async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+    res?: Response,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Không tìm thấy thông tin người dùng');
+    }
+
+    if (!user.password_hash) {
+      throw new BadRequestException(
+        'Tài khoản đăng nhập bằng Google chưa có mật khẩu. Vui lòng sử dụng "Quên mật khẩu" để tạo mật khẩu mới.',
+      );
+    }
+
+    const isCurrentValid = await bcrypt.compare(
+      dto.current_password,
+      user.password_hash,
+    );
+    if (!isCurrentValid) {
+      throw new BadRequestException('Mật khẩu hiện tại không chính xác');
+    }
+
+    const isSamePassword = await bcrypt.compare(
+      dto.new_password,
+      user.password_hash,
+    );
+    if (isSamePassword) {
+      throw new BadRequestException(
+        'Mật khẩu mới không được trùng với mật khẩu hiện tại',
+      );
+    }
+
+    const password_hash = await bcrypt.hash(dto.new_password, 10);
+
+    const { rawRefreshToken, ...session } = await this.prisma.$transaction(
+      async (tx) => {
+        const updatedUser = await tx.user.update({
+          where: { id: user.id },
+          data: { password_hash },
+          select: USER_PUBLIC_SELECT,
+        });
+
+        await tx.refreshToken.updateMany({
+          where: {
+            user_id: user.id,
+            is_revoked: false,
+          },
+          data: {
+            is_revoked: true,
+          },
+        });
+
+        return this.issueSessionTokens(updatedUser, tx);
+      },
+    );
+
+    this.setRefreshTokenCookie(res, rawRefreshToken);
+
+    return {
+      message: 'Đổi mật khẩu thành công!',
+      ...session,
+    };
   }
 }
 

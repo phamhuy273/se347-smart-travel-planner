@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Query,
   Body,
   UseGuards,
@@ -10,6 +11,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -18,6 +20,8 @@ import { GoogleLoginDto } from './dto/google-login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
 
@@ -45,6 +49,7 @@ export function extractRefreshToken(req: Request): string | undefined {
   return undefined;
 }
 
+@ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -127,7 +132,34 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Lấy thông tin hồ sơ người dùng hiện tại' })
   async getMe(@CurrentUser('id') userId: string) {
     return this.authService.getMe(userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Cập nhật hồ sơ người dùng hiện tại' })
+  async updateProfile(
+    @CurrentUser('id') userId: string,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.authService.updateProfile(userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Đổi mật khẩu và cấp mới phiên đăng nhập hiện tại' })
+  async changePassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.authService.changePassword(userId, dto, res);
   }
 }

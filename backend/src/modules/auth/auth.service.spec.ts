@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  BadRequestException,
   ConflictException,
   UnauthorizedException,
   NotFoundException,
+  ValidationPipe,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
@@ -10,6 +12,8 @@ import { validate } from 'class-validator';
 import { AuthService } from './auth.service';
 import { AuthController, extractRefreshToken } from './auth.controller';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 const SENSITIVE_USER_KEYS = [
   'password_hash',
@@ -457,6 +461,204 @@ describe('AuthService', () => {
       service.forgotPassword({ email: 'nonexistent@test.com' }),
     ).rejects.toThrow(NotFoundException);
   });
+
+  describe('updateProfile', () => {
+    it('should update only provided fields and return public user fields', async () => {
+      const updatedUser = createFullDbUser({
+        full_name: 'Nguyen Van B',
+        bio: 'Traveler',
+      });
+      delete (updatedUser as any).password_hash;
+      delete (updatedUser as any).verify_token;
+      delete (updatedUser as any).verify_token_expires_at;
+      delete (updatedUser as any).google_id;
+
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-123' });
+      mockPrisma.user.update.mockResolvedValueOnce(updatedUser);
+
+      const result = await service.updateProfile('user-123', {
+        full_name: 'Nguyen Van B',
+        bio: 'Traveler',
+      });
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { full_name: 'Nguyen Van B', bio: 'Traveler' },
+        select: expect.objectContaining({
+          id: true,
+          email: true,
+          full_name: true,
+          avatar_url: true,
+          bio: true,
+          phone_number: true,
+          is_verified: true,
+          created_at: true,
+          updated_at: true,
+        }),
+      });
+      expectSafePublicUser(result);
+    });
+
+    it('should allow clearing nullable fields with null', async () => {
+      const updatedUser = createFullDbUser({
+        bio: null,
+        phone_number: null,
+        avatar_url: null,
+      });
+      delete (updatedUser as any).password_hash;
+      delete (updatedUser as any).verify_token;
+      delete (updatedUser as any).verify_token_expires_at;
+      delete (updatedUser as any).google_id;
+
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-123' });
+      mockPrisma.user.update.mockResolvedValueOnce(updatedUser);
+
+      await service.updateProfile('user-123', {
+        bio: null,
+        phone_number: null,
+        avatar_url: null,
+      });
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { bio: null, phone_number: null, avatar_url: null },
+        }),
+      );
+    });
+
+    it('should return unchanged user without DB write when body is empty', async () => {
+      const existingPublic = createFullDbUser();
+      delete (existingPublic as any).password_hash;
+      delete (existingPublic as any).verify_token;
+      delete (existingPublic as any).verify_token_expires_at;
+      delete (existingPublic as any).google_id;
+
+      mockPrisma.user.findUnique.mockResolvedValueOnce(existingPublic);
+
+      const result = await service.updateProfile('user-123', {});
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expectSafePublicUser(result);
+    });
+
+    it('should throw NotFoundException if user does not exist', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.updateProfile('missing-user', { full_name: 'Abc' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('changePassword', () => {
+    it('should hash new password, revoke all tokens, create new session in transaction, and set cookie', async () => {
+      const oldHash = await bcrypt.hash('OldPass@123', 10);
+      const res = { cookie: vi.fn(), clearCookie: vi.fn() } as any;
+      const publicUpdated = createFullDbUser();
+      delete (publicUpdated as any).password_hash;
+      delete (publicUpdated as any).verify_token;
+      delete (publicUpdated as any).verify_token_expires_at;
+      delete (publicUpdated as any).google_id;
+
+      mockPrisma.user.findUnique.mockResolvedValueOnce(
+        createFullDbUser({ password_hash: oldHash }),
+      );
+      mockTx.user.update.mockResolvedValueOnce(publicUpdated);
+
+      const result = await service.changePassword(
+        'user-123',
+        {
+          current_password: 'OldPass@123',
+          new_password: 'NewPass@123',
+        },
+        res,
+      );
+
+      expect(result.message).toContain('Đổi mật khẩu thành công');
+      expect(result.accessToken).toBe('mock-token');
+      expectSafePublicUser(result.user);
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+
+      const updateCall = mockTx.user.update.mock.calls[0][0];
+      const savedHash = updateCall.data.password_hash;
+      expect(savedHash).not.toBe('NewPass@123');
+      expect(await bcrypt.compare('NewPass@123', savedHash)).toBe(true);
+
+      expect(mockTx.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { user_id: 'user-123', is_revoked: false },
+        data: { is_revoked: true },
+      });
+      expect(mockTx.refreshToken.create).toHaveBeenCalledTimes(1);
+      expect(res.cookie).toHaveBeenCalledWith(
+        'refresh_token',
+        expect.any(String),
+        expect.objectContaining({ httpOnly: true, path: '/' }),
+      );
+    });
+
+    it('should throw NotFoundException when user does not exist without writing DB', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.changePassword('missing', {
+          current_password: 'OldPass@123',
+          new_password: 'NewPass@123',
+        }),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(mockTx.user.update).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException (400) for Google account without password_hash and not write DB', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce(
+        createFullDbUser({ password_hash: null }),
+      );
+
+      await expect(
+        service.changePassword('user-123', {
+          current_password: 'OldPass@123',
+          new_password: 'NewPass@123',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException (400) when current password is wrong and not write DB', async () => {
+      const oldHash = await bcrypt.hash('OldPass@123', 10);
+      mockPrisma.user.findUnique.mockResolvedValueOnce(
+        createFullDbUser({ password_hash: oldHash }),
+      );
+
+      await expect(
+        service.changePassword('user-123', {
+          current_password: 'WrongPass@123',
+          new_password: 'NewPass@123',
+        }),
+      ).rejects.toThrow(
+        new BadRequestException('Mật khẩu hiện tại không chính xác'),
+      );
+
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException (400) when new password equals current password and not write DB', async () => {
+      const oldHash = await bcrypt.hash('OldPass@123', 10);
+      mockPrisma.user.findUnique.mockResolvedValueOnce(
+        createFullDbUser({ password_hash: oldHash }),
+      );
+
+      await expect(
+        service.changePassword('user-123', {
+          current_password: 'OldPass@123',
+          new_password: 'OldPass@123',
+        }),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('extractRefreshToken & AuthController cookie safety', () => {
@@ -503,5 +705,99 @@ describe('ResetPasswordDto Validation', () => {
 
     const errors = await validate(dto);
     expect(errors).toHaveLength(0);
+  });
+});
+
+describe('UpdateProfileDto & ChangePasswordDto ValidationPipe', () => {
+  const pipe = new ValidationPipe({
+    whitelist: true,
+    transform: true,
+    forbidNonWhitelisted: true,
+    transformOptions: { enableImplicitConversion: true },
+  });
+
+  const validateBody = (dtoClass: any, body: any) =>
+    pipe.transform(body, { type: 'body', metatype: dtoClass });
+
+  it('should reject full_name: null, whitespace-only full_name, invalid phone, javascript: URL, and disallowed fields', async () => {
+    await expect(
+      validateBody(UpdateProfileDto, { full_name: null }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      validateBody(UpdateProfileDto, { full_name: '   ' }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      validateBody(UpdateProfileDto, { phone_number: '123456' }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      validateBody(UpdateProfileDto, { avatar_url: 'javascript:alert(1)' }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      validateBody(UpdateProfileDto, { avatar_url: 'http://example.com/a.jpg' }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      validateBody(UpdateProfileDto, { email: 'hack@test.com' }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      validateBody(UpdateProfileDto, { is_verified: true }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('should trim fields, convert empty bio/phone to null, allow null reset, and allow empty body', async () => {
+    const empty = await validateBody(UpdateProfileDto, {});
+    expect(empty).toEqual({});
+
+    const cleaned = await validateBody(UpdateProfileDto, {
+      full_name: '  Nguyen Van A  ',
+      bio: '   ',
+      phone_number: '  ',
+      avatar_url: 'https://res.cloudinary.com/demo/image/upload/v1/avatar.jpg',
+    });
+    expect(cleaned).toEqual({
+      full_name: 'Nguyen Van A',
+      bio: null,
+      phone_number: null,
+      avatar_url: 'https://res.cloudinary.com/demo/image/upload/v1/avatar.jpg',
+    });
+
+    const cleared = await validateBody(UpdateProfileDto, {
+      phone_number: '+84912345678',
+      avatar_url: null,
+      bio: null,
+    });
+    expect(cleared).toEqual({
+      phone_number: '+84912345678',
+      avatar_url: null,
+      bio: null,
+    });
+  });
+
+  it('should validate ChangePasswordDto without trimming passwords', async () => {
+    const valid = await validateBody(ChangePasswordDto, {
+      current_password: ' OldPass@1 ',
+      new_password: ' NewPass@1 ',
+    });
+    expect(valid.current_password).toBe(' OldPass@1 ');
+    expect(valid.new_password).toBe(' NewPass@1 ');
+
+    await expect(
+      validateBody(ChangePasswordDto, {
+        current_password: '',
+        new_password: 'NewPass@123',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      validateBody(ChangePasswordDto, {
+        current_password: 'OldPass@123',
+        new_password: 'Password123',
+      }),
+    ).rejects.toThrow(BadRequestException);
   });
 });
