@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import type { Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -17,7 +18,24 @@ import { GoogleLoginDto } from './dto/google-login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { MailService } from './mail.service';
+
+const USER_PUBLIC_SELECT = {
+  id: true,
+  email: true,
+  full_name: true,
+  avatar_url: true,
+  bio: true,
+  phone_number: true,
+  is_verified: true,
+  created_at: true,
+  updated_at: true,
+} satisfies Prisma.UserSelect;
+
+// Ân hạn 10 giây khi xoay refresh token để F5 liên tiếp trước lúc trình duyệt nhận Set-Cookie mới không bị 401
+const REFRESH_GRACE_MS = 10_000;
 
 @Injectable()
 export class AuthService {
@@ -28,6 +46,39 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly mailService?: MailService,
   ) {}
+
+  private toPublicUser(user: Record<string, any>) {
+    return {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      avatar_url: user.avatar_url ?? null,
+      bio: user.bio ?? null,
+      phone_number: user.phone_number ?? null,
+      is_verified: user.is_verified,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+    };
+  }
+
+  private getRefreshCookieOptions() {
+    const isProd = process.env.NODE_ENV === 'production';
+    return {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: (isProd ? 'strict' : 'lax') as 'strict' | 'lax',
+      path: '/',
+    };
+  }
+
+  private setRefreshTokenCookie(res: Response | undefined, rawRefreshToken: string) {
+    if (res && typeof res.cookie === 'function') {
+      res.cookie('refresh_token', rawRefreshToken, {
+        ...this.getRefreshCookieOptions(),
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+    }
+  }
 
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase().trim();
@@ -88,17 +139,7 @@ export class AuthService {
         verify_token: verifyToken,
         verify_token_expires_at: verifyExpiresAt,
       },
-      select: {
-        id: true,
-        email: true,
-        full_name: true,
-        avatar_url: true,
-        bio: true,
-        phone_number: true,
-        is_verified: true,
-        created_at: true,
-        updated_at: true,
-      },
+      select: USER_PUBLIC_SELECT,
     });
 
     // 5. Gửi email xác nhận kèm nút bấm kích hoạt
@@ -135,27 +176,12 @@ export class AuthService {
         verify_token: null,
         verify_token_expires_at: null,
       },
-      select: {
-        id: true,
-        email: true,
-        full_name: true,
-        avatar_url: true,
-        bio: true,
-        phone_number: true,
-        is_verified: true,
-        created_at: true,
-        updated_at: true,
-      },
+      select: USER_PUBLIC_SELECT,
     });
-
-    // Tự động cấp access token cho user sau khi kích hoạt thành công
-    const payload = { sub: updatedUser.id, email: updatedUser.email };
-    const accessToken = await this.jwtService.signAsync(payload);
 
     return {
       message: 'Kích hoạt tài khoản thành công! Chào mừng bạn gia nhập WanderFlow.',
-      user: updatedUser,
-      accessToken,
+      user: this.toPublicUser(updatedUser),
     };
   }
 
@@ -191,7 +217,10 @@ export class AuthService {
     return { message: 'Đã gửi lại email xác nhận kích hoạt tài khoản thành công. Vui lòng kiểm tra hòm thư!' };
   }
 
-  async createSession(user: any, res?: Response) {
+  private async issueSessionTokens(
+    user: any,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ) {
     // 1. Sinh Access Token (15-30 phút theo chuẩn bảo mật, chứa sub, email, role)
     const payload = { sub: user.id, email: user.email, role: 'USER' };
     const accessToken = await this.jwtService.signAsync(payload, {
@@ -203,7 +232,7 @@ export class AuthService {
     const tokenHash = crypto.createHash('sha256').update(rawRefreshToken).digest('hex');
     const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 ngày
 
-    await this.prisma.refreshToken.create({
+    await db.refreshToken.create({
       data: {
         user_id: user.id,
         token_hash: tokenHash,
@@ -211,23 +240,20 @@ export class AuthService {
       },
     });
 
-    // 3. Gán Refresh Token vào HttpOnly Cookie nếu có response object
-    if (res && typeof res.cookie === 'function') {
-      const isProd = process.env.NODE_ENV === 'production';
-      res.cookie('refresh_token', rawRefreshToken, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: isProd ? 'strict' : 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-    }
-
-    const { password_hash: _password_hash, verify_token: _verify_token, ...safeUser } = user;
     return {
-      user: safeUser,
+      user: this.toPublicUser(user),
       accessToken,
+      rawRefreshToken,
     };
+  }
+
+  async createSession(user: any, res?: Response) {
+    const { rawRefreshToken, ...session } = await this.issueSessionTokens(user);
+
+    // 3. Gán Refresh Token vào HttpOnly Cookie nếu có response object
+    this.setRefreshTokenCookie(res, rawRefreshToken);
+
+    return session;
   }
 
   async login(dto: LoginDto, res?: Response) {
@@ -341,7 +367,7 @@ export class AuthService {
         is_revoked: false,
       },
       include: {
-        user: true,
+        user: { select: USER_PUBLIC_SELECT },
       },
     });
 
@@ -349,22 +375,54 @@ export class AuthService {
       throw new UnauthorizedException('Phiên đăng nhập không hợp lệ hoặc đã bị thu hồi');
     }
 
-    if (new Date() > tokenRecord.expires_at) {
-      await this.prisma.refreshToken.update({
-        where: { id: tokenRecord.id },
+    if (new Date() >= tokenRecord.expires_at) {
+      await this.prisma.refreshToken.updateMany({
+        where: { id: tokenRecord.id, is_revoked: false },
         data: { is_revoked: true },
       });
       throw new UnauthorizedException('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại!');
     }
 
-    // Thu hồi refresh token cũ (Token Rotation)
-    await this.prisma.refreshToken.update({
-      where: { id: tokenRecord.id },
-      data: { is_revoked: true },
-    });
+    // Thu hồi sau ân hạn ngắn (Token Rotation) và tạo phiên mới nguyên tử trong transaction
+    const { rawRefreshToken: nextRawRefreshToken, ...session } =
+      await this.prisma.$transaction(async (tx) => {
+        const now = new Date();
+        const graceExpiresAt = new Date(now.getTime() + REFRESH_GRACE_MS);
 
-    // Tạo phiên mới và set cookie mới
-    return this.createSession(tokenRecord.user, res);
+        const rotated = await tx.refreshToken.updateMany({
+          where: {
+            id: tokenRecord.id,
+            is_revoked: false,
+            expires_at: { gt: graceExpiresAt },
+          },
+          data: {
+            expires_at: graceExpiresAt,
+          },
+        });
+
+        if (rotated.count !== 1) {
+          const withinGrace = await tx.refreshToken.updateMany({
+            where: {
+              id: tokenRecord.id,
+              is_revoked: false,
+              expires_at: { gt: now },
+            },
+            data: {
+              is_revoked: false,
+            },
+          });
+
+          if (withinGrace.count !== 1) {
+            throw new UnauthorizedException('Phiên đăng nhập không hợp lệ hoặc đã bị thu hồi');
+          }
+        }
+
+        return this.issueSessionTokens(tokenRecord.user, tx);
+      });
+
+    // Chỉ set cookie sau khi transaction thành công
+    this.setRefreshTokenCookie(res, nextRawRefreshToken);
+    return session;
   }
 
   async logout(rawRefreshToken: string | undefined, res?: Response) {
@@ -382,13 +440,7 @@ export class AuthService {
     }
 
     if (res && typeof res.clearCookie === 'function') {
-      const isProd = process.env.NODE_ENV === 'production';
-      res.clearCookie('refresh_token', {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: isProd ? 'strict' : 'lax',
-        path: '/',
-      });
+      res.clearCookie('refresh_token', this.getRefreshCookieOptions());
     }
 
     return { message: 'Đăng xuất thành công' };
@@ -481,14 +533,26 @@ export class AuthService {
     // Hash mật khẩu mới
     const password_hash = await bcrypt.hash(dto.new_password, 10);
 
-    // Cập nhật mật khẩu và xoá token OTP
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        password_hash,
-        verify_token: null,
-        verify_token_expires_at: null,
-      },
+    // Cập nhật mật khẩu, xoá OTP và thu hồi mọi refresh token còn hiệu lực trong một transaction
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          password_hash,
+          verify_token: null,
+          verify_token_expires_at: null,
+        },
+      });
+
+      await tx.refreshToken.updateMany({
+        where: {
+          user_id: user.id,
+          is_revoked: false,
+        },
+        data: {
+          is_revoked: true,
+        },
+      });
     });
 
     return {
@@ -499,17 +563,7 @@ export class AuthService {
   async getMe(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        full_name: true,
-        avatar_url: true,
-        bio: true,
-        phone_number: true,
-        is_verified: true,
-        created_at: true,
-        updated_at: true,
-      },
+      select: USER_PUBLIC_SELECT,
     });
 
     if (!user) {
@@ -517,6 +571,103 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const data: Prisma.UserUpdateInput = {};
+
+    if (dto.full_name !== undefined) data.full_name = dto.full_name;
+    if (dto.bio !== undefined) data.bio = dto.bio;
+    if (dto.phone_number !== undefined) data.phone_number = dto.phone_number;
+    if (dto.avatar_url !== undefined) data.avatar_url = dto.avatar_url;
+
+    if (Object.keys(data).length === 0) {
+      return this.getMe(userId);
+    }
+
+    const existing = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Không tìm thấy thông tin người dùng');
+    }
+
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: USER_PUBLIC_SELECT,
+    });
+  }
+
+  async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+    res?: Response,
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Không tìm thấy thông tin người dùng');
+    }
+
+    if (!user.password_hash) {
+      throw new BadRequestException(
+        'Tài khoản đăng nhập bằng Google chưa có mật khẩu. Vui lòng sử dụng "Quên mật khẩu" để tạo mật khẩu mới.',
+      );
+    }
+
+    const isCurrentValid = await bcrypt.compare(
+      dto.current_password,
+      user.password_hash,
+    );
+    if (!isCurrentValid) {
+      throw new BadRequestException('Mật khẩu hiện tại không chính xác');
+    }
+
+    const isSamePassword = await bcrypt.compare(
+      dto.new_password,
+      user.password_hash,
+    );
+    if (isSamePassword) {
+      throw new BadRequestException(
+        'Mật khẩu mới không được trùng với mật khẩu hiện tại',
+      );
+    }
+
+    const password_hash = await bcrypt.hash(dto.new_password, 10);
+
+    const { rawRefreshToken, ...session } = await this.prisma.$transaction(
+      async (tx) => {
+        const updatedUser = await tx.user.update({
+          where: { id: user.id },
+          data: { password_hash },
+          select: USER_PUBLIC_SELECT,
+        });
+
+        await tx.refreshToken.updateMany({
+          where: {
+            user_id: user.id,
+            is_revoked: false,
+          },
+          data: {
+            is_revoked: true,
+          },
+        });
+
+        return this.issueSessionTokens(updatedUser, tx);
+      },
+    );
+
+    this.setRefreshTokenCookie(res, rawRefreshToken);
+
+    return {
+      message: 'Đổi mật khẩu thành công!',
+      ...session,
+    };
   }
 }
 

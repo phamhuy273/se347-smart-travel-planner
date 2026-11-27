@@ -52,8 +52,8 @@ const menuItems = [
   { name: 'Bản đồ thế giới', path: '/map', icon: Globe },
 ];
 
-const handleLogout = () => {
-  authStore.logout();
+const handleLogout = async () => {
+  await authStore.logout();
   router.push('/login');
 };
 </script>

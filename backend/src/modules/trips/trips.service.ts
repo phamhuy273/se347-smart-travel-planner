@@ -1,14 +1,17 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma, TripVisibility } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTripDto } from './dto/create-trip.dto';
 import { UpdateTripDto } from './dto/update-trip.dto';
 import { GetTripsQueryDto, TripTab } from './dto/get-trips-query.dto';
+import { UnsplashService } from './unsplash.service';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MAX_TRIP_DAYS = 365;
@@ -26,7 +29,10 @@ const tripListInclude = {
 
 @Injectable()
 export class TripsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Optional() @Inject(UnsplashService) private readonly unsplashService?: UnsplashService,
+  ) {}
 
   async create(userId: string, dto: CreateTripDto) {
     const startDate = this.parseDate(dto.start_date, 'Ngày bắt đầu');
@@ -42,6 +48,12 @@ export class TripsService {
       throw new BadRequestException(`Chuyến đi không được dài quá ${MAX_TRIP_DAYS} ngày`);
     }
 
+    const trimmedCover = dto.cover_image_url?.trim();
+    let coverImageUrl: string | null = trimmedCover ? trimmedCover : null;
+    if (!coverImageUrl && this.unsplashService) {
+      coverImageUrl = await this.unsplashService.findCover(dto.destination);
+    }
+
     const tripDays = Array.from({ length: totalDays }, (_, index) => ({
       day_number: index + 1,
       date: new Date(startDate.getTime() + index * MS_PER_DAY),
@@ -54,7 +66,7 @@ export class TripsService {
           title: dto.title.trim(),
           destination: dto.destination.trim(),
           description: dto.description?.trim(),
-          cover_image_url: dto.cover_image_url,
+          cover_image_url: coverImageUrl,
           visibility: dto.visibility,
           start_date: startDate,
           end_date: endDate,

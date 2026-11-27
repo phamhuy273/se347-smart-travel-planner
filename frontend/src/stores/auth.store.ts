@@ -1,6 +1,13 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import apiClient from '../services/api.client';
+import apiClient, {
+  AUTH_SESSION_EVENT,
+  getAccessToken,
+  getSessionUser,
+  setAuthSession,
+  setSessionUser,
+  logoutSession,
+} from '../services/api.client';
 
 export interface UserInfo {
   id: string;
@@ -14,13 +21,34 @@ export interface UserInfo {
   is_verified?: boolean;
 }
 
+let hasBoundSyncListeners = false;
+let activeSyncHandler: ((token: string | null, user: UserInfo | null) => void) | null = null;
+
+function ensureSyncListeners(syncHandler: (token: string | null, user: UserInfo | null) => void) {
+  activeSyncHandler = syncHandler;
+  if (typeof window === 'undefined' || hasBoundSyncListeners) return;
+
+  window.addEventListener(AUTH_SESSION_EVENT, (event: Event) => {
+    const detail = (event as CustomEvent<{ token?: string | null; user?: UserInfo | null }>).detail;
+    activeSyncHandler?.(
+      detail && 'token' in detail ? (detail.token ?? null) : getAccessToken(),
+      detail && 'user' in detail ? (detail.user ?? null) : getSessionUser<UserInfo>(),
+    );
+  });
+
+  hasBoundSyncListeners = true;
+}
+
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem('access_token'));
-  const user = ref<UserInfo | null>(
-    localStorage.getItem('user_info')
-      ? JSON.parse(localStorage.getItem('user_info')!)
-      : null,
-  );
+  const token = ref<string | null>(getAccessToken());
+  const user = ref<UserInfo | null>(getSessionUser<UserInfo>());
+
+  const syncFromSession = (nextToken: string | null, nextUser: UserInfo | null) => {
+    token.value = nextToken;
+    user.value = nextUser;
+  };
+
+  ensureSyncListeners(syncFromSession);
 
   const isAuthenticated = () => !!token.value;
   const isLoggedIn = computed(() => !!token.value);
@@ -29,10 +57,8 @@ export const useAuthStore = defineStore('auth', () => {
   );
 
   function setAuth(accessToken: string, userInfo: UserInfo) {
-    token.value = accessToken;
-    user.value = userInfo;
-    localStorage.setItem('access_token', accessToken);
-    localStorage.setItem('user_info', JSON.stringify(userInfo));
+    setAuthSession(accessToken, userInfo);
+    syncFromSession(getAccessToken(), getSessionUser<UserInfo>());
   }
 
   async function fetchProfile() {
@@ -40,26 +66,26 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const response: any = await apiClient.get('/auth/me');
       const profileData = response.data || response;
-      user.value = profileData;
-      localStorage.setItem('user_info', JSON.stringify(profileData));
+      const currentSessionUser = getSessionUser<UserInfo>();
+      if (
+        !getAccessToken() ||
+        (currentSessionUser?.id != null &&
+          profileData?.id != null &&
+          String(currentSessionUser.id) !== String(profileData.id))
+      ) {
+        return null;
+      }
+      setSessionUser(profileData);
+      syncFromSession(getAccessToken(), getSessionUser<UserInfo>());
       return profileData;
-    } catch (error) {
-      logout();
+    } catch {
       return null;
     }
   }
 
   async function logout() {
-    try {
-      await apiClient.post('/auth/logout');
-    } catch {
-      // Swallowed: even if server is offline, client clears credentials
-    } finally {
-      token.value = null;
-      user.value = null;
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user_info');
-    }
+    await logoutSession();
+    syncFromSession(getAccessToken(), getSessionUser<UserInfo>());
   }
 
   return {

@@ -4,11 +4,9 @@ import { useRoute, useRouter } from 'vue-router';
 import { CheckCircle2, AlertCircle, Loader2, ArrowRight, Mail, Home } from 'lucide-vue-next';
 import authBg from '@/assets/auth-bg.png';
 import apiClient from '@/services/api.client';
-import { useAuthStore } from '@/stores/auth.store';
 
 const route = useRoute();
 const router = useRouter();
-const authStore = useAuthStore();
 
 const status = ref<'loading' | 'success' | 'error'>('loading');
 const message = ref('');

@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { Mail, Lock, Eye, EyeOff, Home, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-vue-next';
 import authBg from '@/assets/auth-bg.png';
 import authPolaroid from '@/assets/auth-polaroid.png';
-import apiClient from '@/services/api.client';
+import apiClient, { getSafeRedirect } from '@/services/api.client';
 import { useAuthStore } from '@/stores/auth.store';
 
 const router = useRouter();
@@ -62,7 +62,7 @@ const handleLogin = async () => {
 
     const authData = response.data || response;
     authStore.setAuth(authData.accessToken, authData.user);
-    router.push('/dashboard');
+    router.push(getSafeRedirect(route.query.redirect));
   } catch (err: any) {
     errorMessage.value =
       err?.response?.data?.message ||
@@ -89,7 +89,7 @@ const finishGoogleAuth = async (credential: string, email?: string, full_name?: 
 
     const authData = response.data || response;
     authStore.setAuth(authData.accessToken, authData.user);
-    router.push('/dashboard');
+    router.push(getSafeRedirect(route.query.redirect));
   } catch (err: any) {
     errorMessage.value =
       err?.response?.data?.message ||

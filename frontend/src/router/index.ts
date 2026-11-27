@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import MainLayout from '@/layouts/MainLayout.vue';
 import PlannerLayout from '@/layouts/PlannerLayout.vue';
+import { ensureSession, getSafeRedirect, hasActiveSession } from '@/services/api.client';
 
 const routes: Array<RouteRecordRaw> = [
   // 1. Public Routes
@@ -84,25 +85,33 @@ const router = createRouter({
 });
 
 // Navigation Guards (SW-11: Auth Protection)
-router.beforeEach((to, _from, next) => {
-  const token = localStorage.getItem('access_token');
+router.beforeEach(async (to) => {
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
   const guestOnly = to.matched.some((record) => record.meta.guestOnly);
+  const isLanding = to.path === '/';
 
-  if (requiresAuth && !token) {
+  const hasSession =
+    requiresAuth || guestOnly || isLanding
+      ? await ensureSession()
+      : hasActiveSession();
+
+  if (requiresAuth && !hasSession) {
     // Chưa đăng nhập mà truy cập trang bảo vệ -> redirect về login kèm redirect query
-    return next({
+    return {
       path: '/login',
-      query: { redirect: to.fullPath },
-    });
+      query: { redirect: getSafeRedirect(to.fullPath) },
+    };
   }
 
-  if (guestOnly && token) {
-    // Đã đăng nhập rồi mà vào login/register/forgot-password -> redirect vào dashboard
-    return next('/dashboard');
+  if (guestOnly && hasSession) {
+    // Đã đăng nhập rồi mà vào login/register/forgot-password -> redirect theo query hợp lệ hoặc dashboard
+    const target = getSafeRedirect(to.query.redirect);
+    const resolved = router.resolve(target);
+    if (resolved.matched.some((record) => record.meta.guestOnly)) {
+      return '/dashboard';
+    }
+    return target;
   }
-
-  next();
 });
 
 export default router;
